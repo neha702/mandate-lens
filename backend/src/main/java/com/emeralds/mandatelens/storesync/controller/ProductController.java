@@ -2,13 +2,19 @@ package com.emeralds.mandatelens.storesync.controller;
 
 import com.emeralds.mandatelens.storesync.model.Product;
 import com.emeralds.mandatelens.storesync.service.ProductService;
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
 import java.io.IOException;
 import java.util.List;
 
+@CrossOrigin(
+        origins = {
+                "http://localhost:5173",
+                "https://mandate-lens-store.onrender.com"
+        }
+)
 @RestController
 @RequestMapping("/api/products")
 public class ProductController {
