@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getProducts } from "../services/productService";
+import { getProducts } from "../services/ProductService";
 import ProductCard from "../components/ProductCard";
 
 function Store({ onAddToCart }) {
