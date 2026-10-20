@@ -1,0 +1,4 @@
+id,name,description,category,price,currency,imageUrl,availability
+shoe-001,Stride Runner,Lightweight daily running shoe,RUNNING_SHOES,179,USD,https://images.unsplash.com/photo-1542291026-7eec264c27ff,IN_STOCK
+shoe-002,Stride Speed,Fast and responsive running shoe,RUNNING_SHOES,149,USD,https://images.unsplash.com/photo-1542291026-7eec264c27ff,IN_STOCK
+shoe-003,Stride Trail,Durable shoe for trail running,RUNNING_SHOES,189,USD,https://images.unsplash.com/photo-1551107696-a4b0c5a0d9a2,IN_STOCK
