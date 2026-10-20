@@ -7,4 +7,4 @@ COPY . .
 RUN chmod +x mvnw
 RUN ./mvnw clean package -DskipTests
 
-CMD ["sh", "-c", "java -jar $(find target -maxdepth 1 -name '*.jar' | head -n 1)"]
+CMD ["java", "-jar", "backend/target/mandate-lens-backend-1.0-SNAPSHOT.jar"]
