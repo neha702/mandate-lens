@@ -1,12 +1,11 @@
-package com.emeralds.mandatelens.guard;
+package com.emeralds.mandatelens.agentpulse.guard;
 
-import com.emeralds.mandatelens.guard.model.GuardCheckRequest;
-import com.emeralds.mandatelens.guard.model.GuardCheckResponse;
-import com.emeralds.mandatelens.guard.model.GuardDecision;
+import com.emeralds.mandatelens.agentpulse.guard.model.GuardCheckRequest;
+import com.emeralds.mandatelens.agentpulse.guard.model.GuardCheckResponse;
+import com.emeralds.mandatelens.agentpulse.guard.model.GuardDecision;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 /** Demo-only decision logic. Replace with the real AgentGuard team integration. */

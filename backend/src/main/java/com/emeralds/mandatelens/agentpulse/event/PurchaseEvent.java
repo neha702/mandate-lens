@@ -1,4 +1,4 @@
-package com.emeralds.mandatelens.model;
+package com.emeralds.mandatelens.agentpulse.event;
 
 import java.math.BigDecimal;
 import java.time.Instant;

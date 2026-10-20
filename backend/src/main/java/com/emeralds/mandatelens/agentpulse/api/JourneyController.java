@@ -1,9 +1,9 @@
-package com.emeralds.mandatelens.api;
+package com.emeralds.mandatelens.agentpulse.api;
 
-import com.emeralds.mandatelens.model.PurchaseEvent;
-import com.emeralds.mandatelens.service.EventStore;
-import com.emeralds.mandatelens.guard.model.GuardCheckResponse;
-import com.emeralds.mandatelens.guard.service.AgentPulseGuardService;
+import com.emeralds.mandatelens.agentpulse.event.EventStore;
+import com.emeralds.mandatelens.agentpulse.event.PurchaseEvent;
+import com.emeralds.mandatelens.agentpulse.guard.model.GuardCheckResponse;
+import com.emeralds.mandatelens.agentpulse.guard.service.AgentPulseGuardService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -43,7 +43,7 @@ public class JourneyController {
     /** Runs the draft AgentGuard contract against the journey using the supplied shopper limit. */
     @PostMapping("/journeys/{journeyId}/guard-check")
     public GuardCheckResponse checkJourney(@PathVariable String journeyId,
-                                           @Valid @RequestBody GuardCheckRequest request) {
+                                           @Valid @RequestBody AgentGuardCheckApiRequest request) {
         List<PurchaseEvent> events = eventStore.findByJourneyId(journeyId);
         if (events.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Journey not found: " + journeyId);
@@ -56,7 +56,7 @@ public class JourneyController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "shopperLimit is required.");
         }
         return guardService.checkJourney(journeyId, events,
-                new com.emeralds.mandatelens.guard.model.GuardCheckRequest.Money(
+                new com.emeralds.mandatelens.agentpulse.guard.model.GuardCheckRequest.Money(
                         request.shopperLimit().amount(), request.shopperLimit().currency(), request.shopperLimit().source()));
     }
 
@@ -74,12 +74,12 @@ public class JourneyController {
     public record HealthResponse(String status, String message) { }
     public record JourneyResponse(String journeyId, List<PurchaseEvent> events) { }
 
-    public record GuardCheckRequest(
+    public record AgentGuardCheckApiRequest(
             @NotBlank String journeyId,
-            @NotNull MoneyRequest shopperLimit
+            @NotNull @Valid MoneyRequest shopperLimit
     ) { }
 
-    public record MoneyRequest(@NotNull BigDecimal amount, String currency, String source) { }
+    public record MoneyRequest(@NotNull BigDecimal amount, @NotBlank String currency, @NotBlank String source) { }
 
     public record CreateEventRequest(
             @NotBlank String id,

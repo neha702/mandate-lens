@@ -1,4 +1,4 @@
-package com.emeralds.mandatelens.guard.model;
+package com.emeralds.mandatelens.agentpulse.guard.model;
 
 import java.math.BigDecimal;
 import java.util.List;

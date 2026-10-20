@@ -5,9 +5,42 @@ Mandate Lens now contains the Store Sync demo shop and the AgentPulse purchase j
 ## Project layout
 
 - `frontend/` — React shop UI.
-- `backend/` — Spring Boot / Java 17 API, Store Sync product endpoint, AgentPulse journey API, and draft AgentGuard adapter.
+- `backend/` — Spring Boot / Java 17 API. Java classes are grouped by feature under `com.emeralds.mandatelens.storesync` and `com.emeralds.mandatelens.agentpulse`.
 - `AgentPulse_AgentGuard_Handoff.md` — proposed ownership split and draft interface for the teams to confirm.
 - `AgentPulse_Hackathon_Starter_Guide.docx` — project and demo guide.
+
+Backend code layout:
+
+```text
+backend/src/main/java/com/emeralds/mandatelens/
+  MandateLensApplication.java       # starts the one backend application
+  storesync/                        # shop catalog API and product loading
+  agentpulse/
+    api/                            # journey and event HTTP endpoints
+    event/                          # purchase event, in-memory store, demo data
+    guard/                          # replaceable AgentGuard connection
+      model/                        # draft request, response, and decision
+      service/                      # builds Guard request from a journey
+```
+
+This is one Spring Boot backend with separate feature packages. It is not a set of separately deployed services, which keeps the hackathon setup simpler.
+
+```mermaid
+flowchart TD
+    App[MandateLensApplication]
+    App --> Shop[Store Sync]
+    App --> Pulse[AgentPulse]
+    Shop --> PC[ProductController]
+    PC --> PS[ProductService]
+    PS --> CSV[(products.csv)]
+    Pulse --> JC[JourneyController]
+    JC --> ES[EventStore]
+    JC --> GS[AgentPulseGuardService]
+    GS --> GC[AgentGuardClient interface]
+    GC -. demo implementation .-> Mock[DemoAgentGuardClient]
+```
+
+The dotted connection is currently a local demo checker. The AgentGuard team can replace it with their confirmed Java module or HTTP client while the journey API remains the AgentPulse entry point.
 
 ## Run the backend
 

@@ -1,7 +1,7 @@
-package com.emeralds.mandatelens.guard;
+package com.emeralds.mandatelens.agentpulse.guard;
 
-import com.emeralds.mandatelens.guard.model.GuardCheckRequest;
-import com.emeralds.mandatelens.guard.model.GuardCheckResponse;
+import com.emeralds.mandatelens.agentpulse.guard.model.GuardCheckRequest;
+import com.emeralds.mandatelens.agentpulse.guard.model.GuardCheckResponse;
 
 /**
  * Replaceable boundary between AgentPulse and AgentGuard.

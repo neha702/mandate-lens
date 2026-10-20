@@ -1,6 +1,6 @@
-package com.emeralds.mandatelens.service;
+package com.emeralds.mandatelens.agentpulse.event;
 
-import com.emeralds.mandatelens.model.PurchaseEvent;
+import com.emeralds.mandatelens.agentpulse.event.PurchaseEvent;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
