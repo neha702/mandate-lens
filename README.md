@@ -5,7 +5,7 @@ Mandate Lens now contains the Store Sync demo shop and the AgentPulse purchase j
 ## Project layout
 
 - `frontend/` — React shop UI.
-- `backend/` — Spring Boot / Java 17 API. Java classes are grouped by feature under `com.emeralds.mandatelens.storesync` and `com.emeralds.mandatelens.agentpulse`.
+- `backend/` — Spring Boot / Java 17 API. Java classes are grouped by feature under `com.emeralds.mandatelens.merchant` and `com.emeralds.mandatelens.agentpulse`.
 - `AgentPulse_AgentGuard_Handoff.md` — proposed ownership split and draft interface for the teams to confirm.
 - `AgentPulse_Hackathon_Starter_Guide.docx` — project and demo guide.
 
@@ -14,10 +14,11 @@ Backend code layout:
 ```text
 backend/src/main/java/com/emeralds/mandatelens/
   MandateLensApplication.java       # starts the one backend application
-  storesync/                        # shop catalog API and product loading
+  merchant/catalog/                 # PostgreSQL-backed shop catalog API
+  merchant/cart/                    # PostgreSQL-backed cart domain and service
   agentpulse/
     api/                            # journey and event HTTP endpoints
-    event/                          # purchase event, in-memory store, demo data
+    event/                          # PostgreSQL event store, demo data
     guard/                          # replaceable AgentGuard connection
       model/                        # draft request, response, and decision
       service/                      # builds Guard request from a journey
@@ -32,7 +33,8 @@ flowchart TD
     App --> Pulse[AgentPulse]
     Shop --> PC[ProductController]
     PC --> PS[ProductService]
-    PS --> CSV[(products.csv)]
+    PS --> DB[(PostgreSQL)]
+    ES --> DB
     Pulse --> JC[JourneyController]
     JC --> ES[EventStore]
     JC --> GS[AgentPulseGuardService]
@@ -44,7 +46,11 @@ The dotted connection is currently a local demo checker. The AgentGuard team can
 
 ## Run the backend
 
-Use Java 17+ and the included Maven wrapper. From the project root in PowerShell:
+Use Java 17+, PostgreSQL, and the included Maven wrapper. Create a database named `mandatelens`; Flyway creates the `merchant` and `trust` schemas and tables from `db_schema.md` on startup. The bundled product CSV seeds an empty catalog once; PostgreSQL is the catalog source after seeding. Store Sync adapter fields not represented in the schema are kept in `merchant.store_sync_cart_state`.
+
+Set `DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD` for your PostgreSQL instance. Defaults connect to `jdbc:postgresql://localhost:5432/mandatelens` as `postgres` with password `postgres`.
+
+From the project root in PowerShell:
 
 ```powershell
 .\mvnw.cmd -pl backend spring-boot:run
@@ -103,7 +109,7 @@ curl.exe -X POST http://localhost:8080/api/journeys/demo-shoes-001/events `
   -d '{"id":"evt_103","occurredAt":"2026-10-20T09:05:00Z","type":"checkout_started","source":"simulated_demo","amount":209.00,"currency":"USD","details":"Demo checkout started."}'
 ```
 
-`add event` means recording something that happened in the purchase timeline; it does not add a product to the shopping cart. The current two seeded events are labelled `simulated_demo`, are not real store/AP2 records, and reset when the backend restarts.
+`add event` means recording something that happened in the purchase timeline; it does not add a product to the shopping cart. The two seeded events and mandate are demo records. They are inserted only when the demo journey has no events and remain in PostgreSQL across restarts.
 
 ## Current integration boundaries
 
@@ -111,4 +117,4 @@ curl.exe -X POST http://localhost:8080/api/journeys/demo-shoes-001/events `
 - AgentPulse currently uses seeded demo events. The React cart is not yet connected to the journey event API.
 - `AgentGuardClient` is the replaceable connection point. Its current implementation is a local budget-checking demo, not the AgentGuard team's confirmed policy engine.
 - PayPal Sandbox checkout is not connected yet. Later, the backend should create and capture orders and record payment status only from PayPal's server response.
-- Event storage is in memory for the demo. Data resets when the backend restarts.
+- Journey events, mandates, catalog products, carts, cart items, PayPal order/payment references and statuses, and Store Sync adapter state are persisted in PostgreSQL.

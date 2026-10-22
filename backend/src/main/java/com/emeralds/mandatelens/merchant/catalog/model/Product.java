@@ -1,7 +1,11 @@
-package com.emeralds.mandatelens.storesync.model;
+package com.emeralds.mandatelens.merchant.catalog.model;
 
 import java.math.BigDecimal;
 
+/**
+ * Product entry loaded from the merchant catalog source.
+ * `availability` describes the stock state; `availableQuantity` is its sellable unit count.
+ */
 public class Product {
 
     private String id;
@@ -12,6 +16,7 @@ public class Product {
     private String currency;
     private String imageUrl;
     private String availability;
+    private int availableQuantity;
 
     public Product() {
     }
@@ -24,7 +29,8 @@ public class Product {
             BigDecimal price,
             String currency,
             String imageUrl,
-            String availability) {
+            String availability,
+            int availableQuantity) {
         this.id = id;
         this.name = name;
         this.description = description;
@@ -33,6 +39,7 @@ public class Product {
         this.currency = currency;
         this.imageUrl = imageUrl;
         this.availability = availability;
+        this.availableQuantity = availableQuantity;
     }
 
     public String getId() {
@@ -65,5 +72,9 @@ public class Product {
 
     public String getAvailability() {
         return availability;
+    }
+
+    public int getAvailableQuantity() {
+        return availableQuantity;
     }
 }
