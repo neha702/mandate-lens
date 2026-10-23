@@ -21,6 +21,7 @@ public class DemoDataInitializer implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        if (!eventStore.findByJourneyId(DEMO_JOURNEY_ID).isEmpty()) return;
         List.of(
                 new PurchaseEvent("evt_101", DEMO_JOURNEY_ID, Instant.parse("2026-10-20T09:00:00Z"),
                         "cart_created", "simulated_demo", new BigDecimal("179.00"), "USD",
