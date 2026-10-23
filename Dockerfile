@@ -7,4 +7,4 @@ COPY . .
 RUN chmod +x mvnw
 RUN ./mvnw clean package -DskipTests
 
-CMD ["java", "-jar", "backend/target/mandate-lens-backend-1.0-SNAPSHOT.jar"]
+CMD ["java", "-jar", "src/server/target/mandate-lens-server-1.0-SNAPSHOT.jar"]
