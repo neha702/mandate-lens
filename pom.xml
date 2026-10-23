@@ -22,6 +22,6 @@
     </properties>
 
     <modules>
-        <module>backend</module>
+        <module>src/server</module>
     </modules>
 </project>
