@@ -1,5 +1,7 @@
 # AgentPulse and AgentGuard Team Handoff
 
+> **This is an older discussion draft.** The current approved merchant-facing flow, API proposal, team split, and sequence diagrams are in [AgentPulse_Merchant_Integration_Design.md](AgentPulse_Merchant_Integration_Design.md). Use that document as the current direction and update this handoff after AgentGuard confirms the request and response contract.
+
 This is a discussion template for the two teams. The ownership and JSON examples below are proposals based on the current project flow. Confirm them together before treating them as the agreed design.
 
 ## Plain-language summary

@@ -1,0 +1,150 @@
+@startuml
+title Mandate Lens - detailed class and request flow
+!pragma layout smetana
+left to right direction
+skinparam packageStyle rectangle
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+
+class Merchant <<external caller>>
+class GuardService <<external AgentGuard service>>
+class DB <<PostgreSQL trust schema>>
+
+package "AgentPulse - write/check flow" as PulseWrite {
+  class MerchantOperationController <<REST entry point>> {
+    +check(request)
+    +reportResult(operationId, result)
+  }
+  class MerchantOperationService <<request coordinator>> {
+    +check(request)
+    +result(operationId, result)
+    -validate(request)
+    -coordinateGuardAndPersistence()
+  }
+  class MandateService <<mandate lookup>> {
+    +findByJourneyId(journeyId)
+  }
+  class Mandate <<authorization facts>> {
+    mandateId
+    journeyId
+    merchantId
+    maxAmount
+    allowedCategories
+    expiresAt
+  }
+  class PendingOperationRepository <<operation storage>> {
+    +findByIdempotencyKey(merchantId, key)
+    +create(operation, cart, action)
+    +saveDecision(operationId, decision)
+    +saveCallback(eventId, result)
+  }
+  class GuardDecisionRecorder <<save decision and event>> {
+    +record(operation, decision, reasons, rules)
+  }
+  class EventStore <<journey event storage>> {
+    +save(event)
+    +findByJourneyId(journeyId)
+  }
+  class OperationExpiryScheduler <<background timer>> {
+    +expireOverdueOperations()
+    +expireInactiveJourneys()
+  }
+}
+
+package "AgentGuard - connection code in Mandate Lens" as GuardAdapter {
+  interface AgentGuardClient {
+    +evaluateCart(request)
+    +evaluateCheckout(request)
+  }
+  class HttpAgentGuardClient <<HTTP adapter>> {
+    +evaluateCart(request)
+    +evaluateCheckout(request)
+  }
+  class EvaluateCartRequest <<whole cart to check>>
+  class EvaluateCheckoutRequest <<final cart to check>>
+  class GuardDecisionResponse <<decision facts>> {
+    decisionId
+    decision: GuardDecision
+    reasons
+    ruleResults
+  }
+}
+
+package "AgentPulse - journey read flow" as PulseRead {
+  class MerchantJourneyController <<REST read entry point>> {
+    +getJourney(journeyId, merchantId)
+  }
+  class JourneyQueryService <<read coordinator>> {
+    +getJourney(journeyId, merchantId)
+    -checkMerchantOwnership(journeyId, merchantId)
+    -assembleStoredFacts()
+  }
+  class JourneyReadRepository <<read-only database access>> {
+    +findJourney(journeyId, merchantId)
+    +findOperations(journeyId)
+    +findDecisions(journeyId)
+    +findEvents(journeyId)
+  }
+  class JourneyDetail <<returned journey view>> {
+    journeyId
+    merchantId
+    cartId
+    status
+    latestEventType
+    latestOutcome
+    operations
+    decisions
+    ruleResults
+    timeline
+  }
+}
+
+Merchant --> MerchantOperationController : 1. send whole-cart check\n2. send actual result callback
+MerchantOperationController --> MerchantOperationService : pass validated request
+MerchantOperationService --> MandateService : find mandate for journey
+MandateService --> Mandate : return limits and merchant link
+MerchantOperationService --> PendingOperationRepository : 1. save pending operation\n2. update operation result
+MerchantOperationService --> AgentGuardClient : evaluate proposed cart
+AgentGuardClient <|.. HttpAgentGuardClient
+HttpAgentGuardClient --> GuardService : send mandate and cart facts
+GuardService --> GuardDecisionResponse : return ALLOW/BLOCK\nwith reasons and rule results
+MerchantOperationService --> GuardDecisionRecorder : save Guard answer
+GuardDecisionRecorder --> PendingOperationRepository : attach decision and status
+GuardDecisionRecorder --> EventStore : add Guard check event
+MerchantOperationService --> EventStore : add merchant result event\n(cart/payment success or failure)
+
+Merchant --> MerchantJourneyController : 3. request saved journey after result/failure
+MerchantJourneyController --> JourneyQueryService : ask for journey facts
+JourneyQueryService --> JourneyReadRepository : find matching merchant and journey
+JourneyReadRepository --> DB : read journey, operations, decisions, events
+JourneyQueryService --> JourneyDetail : combine facts in time order
+JourneyDetail --> MerchantJourneyController : response with reason facts
+MerchantJourneyController --> Merchant : return journey details
+
+OperationExpiryScheduler --> PendingOperationRepository : find operations with no callback
+OperationExpiryScheduler --> EventStore : record timeout/expiry event
+
+PendingOperationRepository --> DB : save/check operation state
+GuardDecisionRecorder --> DB : save Guard decision and reasons
+EventStore --> DB : append timeline event
+JourneyReadRepository --> DB : read-only journey query
+
+note bottom of PulseWrite
+Check flow: Merchant -> Pulse -> Guard -> save decision/event -> Merchant.
+After trying the change, Merchant sends a callback; Pulse saves the real outcome.
+ALLOW means the merchant may try; it does not guarantee the cart change succeeded.
+Routes: POST /api/v1/merchant-operations/check and
+POST /api/v1/merchant-operations/{operationId}/result.
+end note
+
+note bottom of PulseRead
+The read API returns stored facts. It does not re-run Guard or PayPal.
+merchantId matching is only a local demo ownership check, not authentication.
+Route: GET /api/v1/journeys/{journeyId}?merchantId={merchantId}.
+end note
+
+note bottom of GuardAdapter
+These client and request/response classes live in Mandate Lens.
+The policy rules and decision-making service belong to the AgentGuard teammate.
+end note
+@enduml

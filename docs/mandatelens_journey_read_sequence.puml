@@ -1,0 +1,40 @@
+@startuml
+title Merchant requests a journey explanation after a failed action
+autonumber
+
+actor "AI shopping agent" as Agent
+participant Merchant
+participant "MerchantJourneyController" as API
+participant "JourneyQueryService" as Query
+participant "JourneyReadRepository" as Repo
+database PostgreSQL as DB
+
+Agent -> Merchant : Receives failed cart or payment result
+Merchant -> API : GET /api/v1/journeys/{journeyId}?merchantId={merchantId}
+API -> Query : getJourney(merchant, journeyId)
+Query -> Repo : Find journey matching journeyId and merchantId
+Repo -> DB : Read journey ownership
+DB --> Repo : Matching journey or no row
+Repo --> Query : Journey summary or not found
+alt Journey belongs to merchant
+Query -> Repo : Read journey status, operations, events, decisions
+Repo -> DB : Select journey and correlated evidence
+DB --> Repo : Journey rows and ordered history
+Repo --> Query : Structured journey facts
+Query -> Query : Assemble response from recorded facts
+Query --> API : JourneyDetail
+API --> Merchant : Timeline, outcome, Guard reasons, next-step context
+Merchant --> Agent : Explain the confirmed reason to the shopper
+else Journey missing or owned by another merchant
+Query --> API : Not found
+API --> Merchant : 404
+end
+
+note over Query,DB
+Return recorded facts and Guard reasons.
+Do not invent or change the Guard decision.
+The merchantId query value is a demo ownership check,
+not authentication. Replace it with authenticated identity
+before exposing the endpoint beyond the local demo.
+end note
+@enduml

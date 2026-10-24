@@ -104,7 +104,7 @@ For a cart change, the payload contains the journey and mandate IDs, action, cur
 
 `HttpAgentGuardClient` sends JSON over HTTP using Spring's `RestClient`. It is deliberately restricted to loopback hosts (`localhost`, `127.0.0.1`, or `::1`) until AgentGuard authentication is defined. If AgentGuard is unconfigured, unreachable, returns an empty/invalid response, or returns a non-`ALLOW` decision, guarded operations fail closed.
 
-The request/response examples in [Agentguard_contract.md](Agentguard_contract.md) are the working contract proposal. The AgentGuard service implementation and authentication setup are outside this repository.
+The current request and response proposal is in [AgentPulse_Merchant_Integration_Design.md](AgentPulse_Merchant_Integration_Design.md#5-proposed-api-contract). The AgentGuard service implementation and authentication setup are outside this repository.
 
 ## 6. Tools and technology in use
 
@@ -133,15 +133,15 @@ The request/response examples in [Agentguard_contract.md](Agentguard_contract.md
 
 ## 8. Main code references
 
-- Merchant Store Sync routes: `backend/src/main/java/com/emeralds/mandatelens/merchant/integration/storesync/controller/StoreSyncCartController.java`
-- Merchant orchestration: `backend/src/main/java/com/emeralds/mandatelens/merchant/integration/storesync/service/StoreSyncCartService.java`
-- Guard request mapping and decision enforcement: `backend/src/main/java/com/emeralds/mandatelens/merchant/integration/storesync/service/StoreSyncGuardService.java`
-- Guard HTTP adapter: `backend/src/main/java/com/emeralds/mandatelens/agentguard/client/HttpAgentGuardClient.java`
-- Guard contract models: `backend/src/main/java/com/emeralds/mandatelens/agentguard/model/`
-- Demo mandate seed and persistence: `backend/src/main/java/com/emeralds/mandatelens/mandate/service/MandateService.java`
-- PayPal client: `backend/src/main/java/com/emeralds/mandatelens/merchant/integration/storesync/service/PayPalOrdersClient.java`
-- AgentPulse event persistence: `backend/src/main/java/com/emeralds/mandatelens/agentpulse/event/EventStore.java`
-- Working AgentGuard contract: [Agentguard_contract.md](Agentguard_contract.md)
+- Merchant Store Sync routes: `src/server/src/main/java/com/emeralds/mandatelens/merchant/integration/storesync/controller/StoreSyncCartController.java`
+- Merchant orchestration: `src/server/src/main/java/com/emeralds/mandatelens/merchant/integration/storesync/service/StoreSyncCartService.java`
+- Guard request mapping and decision enforcement: `src/server/src/main/java/com/emeralds/mandatelens/merchant/integration/storesync/service/StoreSyncGuardService.java`
+- Guard HTTP adapter: `src/server/src/main/java/com/emeralds/mandatelens/agentguard/client/HttpAgentGuardClient.java`
+- Guard contract models: `src/server/src/main/java/com/emeralds/mandatelens/agentguard/model/`
+- Demo mandate seed and persistence: `src/server/src/main/java/com/emeralds/mandatelens/mandate/service/MandateService.java`
+- PayPal client: `src/server/src/main/java/com/emeralds/mandatelens/merchant/integration/storesync/service/PayPalOrdersClient.java`
+- AgentPulse event persistence: `src/server/src/main/java/com/emeralds/mandatelens/agentpulse/event/EventStore.java`
+- Current merchant and Guard contract proposal: [AgentPulse_Merchant_Integration_Design.md](AgentPulse_Merchant_Integration_Design.md#5-proposed-api-contract)
 
 ## 9. Add other components here
 
