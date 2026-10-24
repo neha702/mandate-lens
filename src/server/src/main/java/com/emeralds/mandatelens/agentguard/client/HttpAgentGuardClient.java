@@ -7,6 +7,7 @@ import com.emeralds.mandatelens.agentguard.model.RegisterMandateRequest;
 import com.emeralds.mandatelens.agentguard.model.RegisterMandateResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -14,6 +15,7 @@ import java.net.URI;
 
 /** Contract adapter. Calls are loopback-only until AgentGuard authentication is specified. */
 @Component
+@Profile("!agentguard-deterministic")
 public class HttpAgentGuardClient implements AgentGuardClient {
     private final String baseUrl;
     private final RestClient client;

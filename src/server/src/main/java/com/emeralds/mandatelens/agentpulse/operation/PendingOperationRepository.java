@@ -6,8 +6,6 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
-import com.emeralds.mandatelens.agentguard.model.GuardDecision;
-import com.emeralds.mandatelens.agentguard.model.GuardDecisionResponse;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -56,40 +54,13 @@ public class PendingOperationRepository {
                 fingerprint(context), json(context), Timestamp.from(dueAt));
     }
 
-    @Transactional
-    public void saveDecision(String operationId, String journeyId, String mandateId, String action,
-                             String decisionId, String decision, Object reasons, Object context) {
-        jdbc.update("""
-                INSERT INTO trust.guard_decisions
-                (decision_id, journey_id, mandate_id, action_type, decision, reason_details, action_context,
-                 correlation_id)
-                VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?)
-                """, decisionId, journeyId, mandateId, action, decision, json(reasons), json(context), operationId);
+    public void attachGuardDecision(String operationId, String decisionId, String decision) {
         jdbc.update("""
                 UPDATE trust.pending_operations SET guard_decision_id = ?, status = ?,
-                    resolved_at = CASE WHEN ? = 'BLOCK' THEN NOW() ELSE NULL END
+                    resolved_at = CASE WHEN ? <> 'ALLOW' THEN NOW() ELSE NULL END
                 WHERE operation_id = ?
-                """, decisionId, "BLOCK".equals(decision) ? "NOT_APPLIED" : "AWAITING_MERCHANT_RESULT",
+                """, decisionId, "ALLOW".equals(decision) ? "AWAITING_MERCHANT_RESULT" : "NOT_APPLIED",
                 decision, operationId);
-    }
-
-    public Optional<DecisionRecord> findDecision(String decisionId) {
-        return jdbc.query("SELECT decision, reason_details::text, action_context::text " +
-                        "FROM trust.guard_decisions WHERE decision_id = ?",
-                rs -> {
-                    if (!rs.next()) return Optional.empty();
-                    try {
-                        java.util.List<GuardDecisionResponse.Reason> reasons = mapper.readValue(rs.getString(2), mapper.getTypeFactory()
-                                .constructCollectionType(java.util.List.class, GuardDecisionResponse.Reason.class));
-                        var context = mapper.readTree(rs.getString(3));
-                        var rulesNode = context.path("ruleResults");
-                        java.util.List<GuardDecisionResponse.RuleResult> rules = mapper.convertValue(rulesNode, mapper.getTypeFactory()
-                                .constructCollectionType(java.util.List.class, GuardDecisionResponse.RuleResult.class));
-                        return Optional.of(new DecisionRecord(GuardDecision.valueOf(rs.getString(1)), reasons, rules));
-                    } catch (Exception exception) {
-                        throw new IllegalStateException("Could not read saved Guard decision.", exception);
-                    }
-                }, decisionId);
     }
 
     public Operation find(String operationId) {
@@ -179,8 +150,6 @@ public class PendingOperationRepository {
     public record Operation(String operationId, String journeyId, String cartId,
                             String action, String status, String decisionId, String merchantId,
                             String requestHash) { }
-    public record DecisionRecord(GuardDecision decision, java.util.List<GuardDecisionResponse.Reason> reasons,
-                                 java.util.List<GuardDecisionResponse.RuleResult> ruleResults) { }
     public record ExpiredOperation(String operationId, String journeyId, String cartId) { }
     public static class IdempotencyConflictException extends RuntimeException { }
     public static class OperationStateException extends RuntimeException {
