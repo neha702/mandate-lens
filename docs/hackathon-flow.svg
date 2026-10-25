@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1260" viewBox="0 0 1800 1260" role="img" aria-labelledby="title desc">
+  <title id="title">Mandate Lens hackathon end-to-end flow</title>
+  <desc id="desc">Simulated AP2 authorization registration, whole-cart checks, item removal reporting, PayPal checkout, and journey history.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#50627a"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; fill: #17243a; }
+      .title { font-size: 32px; font-weight: 700; }
+      .subtitle { font-size: 17px; fill: #53657c; }
+      .section { font-size: 19px; font-weight: 700; }
+      .box-title { font-size: 18px; font-weight: 700; }
+      .box-copy { font-size: 15px; fill: #394b63; }
+      .label { font-size: 14px; fill: #40536b; }
+      .note { font-size: 15px; font-weight: 600; }
+      .band { fill: #f7f9fc; stroke: #d7e0eb; stroke-width: 2; rx: 18; }
+      .actor { fill: #eef3f9; stroke: #9eb0c5; stroke-width: 2; rx: 12; }
+      .lens { fill: #e9f2ff; stroke: #6a94ce; stroke-width: 2; rx: 12; }
+      .guard { fill: #f0ebff; stroke: #9b83d0; stroke-width: 2; rx: 12; }
+      .db { fill: #eaf7f1; stroke: #6eaf90; stroke-width: 2; rx: 12; }
+      .paypal { fill: #fff4df; stroke: #d8ad58; stroke-width: 2; rx: 12; }
+      .allow { fill: #eaf7ef; stroke: #71ad83; stroke-width: 2; rx: 12; }
+      .block { fill: #fff0ef; stroke: #d58a83; stroke-width: 2; rx: 12; }
+      .line { fill: none; stroke: #50627a; stroke-width: 2.5; marker-end: url(#arrow); }
+      .dashed { fill: none; stroke: #8b99aa; stroke-width: 2; stroke-dasharray: 8 7; }
+    </style>
+  </defs>
+  <rect width="1800" height="1260" fill="#ffffff"/>
+  <text x="60" y="58" class="title">Mandate Lens — hackathon end-to-end flow</text>
+  <text x="60" y="88" class="subtitle">One simulated authorization envelope; whole-cart checks; merchant outcomes recorded on one journey.</text>
+
+  <rect x="40" y="112" width="1720" height="190" class="band"/>
+  <text x="68" y="145" class="section">1 · Register authorization once</text>
+  <rect x="80" y="170" width="300" height="86" class="actor"/>
+  <text x="230" y="202" text-anchor="middle" class="box-title">Agent / trusted surface</text>
+  <text x="230" y="229" text-anchor="middle" class="box-copy">POST simulated envelope</text>
+  <rect x="500" y="170" width="330" height="86" class="lens"/>
+  <text x="665" y="202" text-anchor="middle" class="box-title">Mandate Lens</text>
+  <text x="665" y="229" text-anchor="middle" class="box-copy">Persist envelope JSONB + constraints</text>
+  <rect x="970" y="170" width="310" height="86" class="guard"/>
+  <text x="1125" y="202" text-anchor="middle" class="box-title">AgentGuard</text>
+  <text x="1125" y="229" text-anchor="middle" class="box-copy">Register normalized rules + hash</text>
+  <rect x="1430" y="170" width="260" height="86" class="db"/>
+  <text x="1560" y="202" text-anchor="middle" class="box-title">PostgreSQL</text>
+  <text x="1560" y="229" text-anchor="middle" class="box-copy">Mandate + journey</text>
+  <path d="M380 213 H492" class="line"/><text x="436" y="199" text-anchor="middle" class="label">envelope</text>
+  <path d="M830 213 H962" class="line"/><text x="896" y="199" text-anchor="middle" class="label">register once</text>
+  <path d="M970 239 H838" class="line"/><text x="902" y="258" text-anchor="middle" class="label">registration response</text>
+  <path d="M665 256 V278 H1560 V264" class="line"/>
+  <text x="1100" y="296" text-anchor="middle" class="label">Mandate Lens persists envelope and registration status</text>
+  <text x="665" y="280" text-anchor="middle" class="label">Demo artifacts are SIMULATED; no AP2 signature verification or payment credential.</text>
+
+  <rect x="40" y="322" width="1720" height="245" class="band"/>
+  <text x="68" y="355" class="section">2 · Add or update cart · check the whole proposed cart</text>
+  <rect x="70" y="390" width="250" height="82" class="actor"/>
+  <text x="195" y="421" text-anchor="middle" class="box-title">Shopping agent</text>
+  <text x="195" y="447" text-anchor="middle" class="box-copy">Store Sync request</text>
+  <rect x="390" y="390" width="270" height="82" class="actor"/>
+  <text x="525" y="421" text-anchor="middle" class="box-title">Store Sync simulator</text>
+  <text x="525" y="447" text-anchor="middle" class="box-copy">Map request to local merchant</text>
+  <rect x="730" y="390" width="270" height="82" class="actor"/>
+  <text x="865" y="421" text-anchor="middle" class="box-title">Merchant cart</text>
+  <text x="865" y="447" text-anchor="middle" class="box-copy">Resolve catalog prices</text>
+  <rect x="1070" y="390" width="290" height="82" class="lens"/>
+  <text x="1215" y="421" text-anchor="middle" class="box-title">Mandate Lens check</text>
+  <text x="1215" y="447" text-anchor="middle" class="box-copy">Ensure registration; create operation</text>
+  <rect x="1430" y="390" width="270" height="82" class="guard"/>
+  <text x="1565" y="421" text-anchor="middle" class="box-title">AgentGuard</text>
+  <text x="1565" y="447" text-anchor="middle" class="box-copy">Return decision + reasons</text>
+  <path d="M320 431 H382" class="line"/><path d="M660 431 H722" class="line"/>
+  <path d="M1000 431 H1062" class="line"/><path d="M1360 431 H1422" class="line"/>
+  <rect x="380" y="493" width="540" height="52" class="allow"/>
+  <text x="650" y="526" text-anchor="middle" class="note">ALLOW → commit cart; report actual success or failure</text>
+  <rect x="1000" y="493" width="650" height="52" class="block"/>
+  <text x="1325" y="526" text-anchor="middle" class="note">REVIEW / BLOCK → do not apply; decision and reasons stay in journey</text>
+  <path d="M1215 472 V482 H650 V485" class="line"/>
+  <path d="M1565 472 V482 H1325 V485" class="line"/>
+
+  <rect x="40" y="587" width="1720" height="150" class="band"/>
+  <text x="68" y="620" class="section">3 · Item removal · report the delta without a Guard check</text>
+  <rect x="120" y="645" width="300" height="66" class="actor"/>
+  <text x="270" y="674" text-anchor="middle" class="box-title">Store Sync / merchant</text>
+  <text x="270" y="697" text-anchor="middle" class="box-copy">Persist reduced or empty cart</text>
+  <rect x="650" y="645" width="350" height="66" class="lens"/>
+  <text x="825" y="674" text-anchor="middle" class="box-title">Result-only operation</text>
+  <text x="825" y="697" text-anchor="middle" class="box-copy">Changed item IDs + negative quantities</text>
+  <rect x="1270" y="645" width="300" height="66" class="db"/>
+  <text x="1420" y="674" text-anchor="middle" class="box-title">Journey timeline</text>
+  <text x="1420" y="697" text-anchor="middle" class="box-copy">Removal event + resulting total</text>
+  <path d="M420 678 H642" class="line"/><text x="530" y="665" text-anchor="middle" class="label">result callback</text>
+  <path d="M1000 678 H1262" class="line"/>
+  <path d="M460 630 H1160" class="dashed"/><text x="810" y="626" text-anchor="middle" class="label">No AgentGuard call</text>
+
+  <rect x="40" y="757" width="1720" height="240" class="band"/>
+  <text x="68" y="790" class="section">4 · Checkout · check first, capture only after ALLOW</text>
+  <rect x="80" y="825" width="300" height="76" class="actor"/>
+  <text x="230" y="855" text-anchor="middle" class="box-title">Merchant cart</text>
+  <text x="230" y="880" text-anchor="middle" class="box-copy">Send final cart</text>
+  <rect x="500" y="825" width="300" height="76" class="lens"/>
+  <text x="650" y="855" text-anchor="middle" class="box-title">Mandate Lens</text>
+  <text x="650" y="880" text-anchor="middle" class="box-copy">CHECKOUT evaluation</text>
+  <rect x="920" y="825" width="290" height="76" class="guard"/>
+  <text x="1065" y="855" text-anchor="middle" class="box-title">AgentGuard</text>
+  <text x="1065" y="880" text-anchor="middle" class="box-copy">Evaluate final cart</text>
+  <rect x="1330" y="825" width="330" height="76" class="paypal"/>
+  <text x="1495" y="855" text-anchor="middle" class="box-title">PayPal Orders v2 Sandbox</text>
+  <text x="1495" y="880" text-anchor="middle" class="box-copy">Capture order after ALLOW</text>
+  <path d="M380 863 H492" class="line"/><path d="M800 863 H912" class="line"/>
+  <path d="M920 887 H810" class="line"/><text x="865" y="881" text-anchor="middle" class="label">decision</text>
+  <path d="M650 901 V913 H400 V901" class="line"/><text x="520" y="909" text-anchor="middle" class="label">return decision to merchant</text>
+  <path d="M230 901 V913 H1495 V817" class="line"/>
+  <text x="1050" y="909" text-anchor="middle" class="label">merchant requests capture only after ALLOW</text>
+  <rect x="530" y="923" width="570" height="52" class="allow"/>
+  <text x="815" y="956" text-anchor="middle" class="note">Report PAYMENT_SUCCEEDED or PAYMENT_FAILED</text>
+  <rect x="1190" y="923" width="490" height="52" class="block"/>
+  <text x="1435" y="956" text-anchor="middle" class="note">REVIEW / BLOCK → no PayPal capture</text>
+  <path d="M1495 901 V919 H815 V915" class="line"/>
+  <path d="M650 901 V919 H1435 V915" class="line"/>
+  <path d="M815 975 V985 H1740" class="line"/><text x="1310" y="982" text-anchor="middle" class="label">Persist outcome in journey</text>
+
+  <rect x="40" y="1017" width="1720" height="190" class="band"/>
+  <text x="68" y="1050" class="section">5 · Read the story from saved facts</text>
+  <rect x="150" y="1075" width="340" height="82" class="actor"/>
+  <text x="320" y="1107" text-anchor="middle" class="box-title">Merchant</text>
+  <text x="320" y="1133" text-anchor="middle" class="box-copy">GET journey by journeyId</text>
+  <rect x="700" y="1075" width="370" height="82" class="lens"/>
+  <text x="885" y="1107" text-anchor="middle" class="box-title">Mandate Lens journey API</text>
+  <text x="885" y="1133" text-anchor="middle" class="box-copy">Combine stored events, ops, decisions</text>
+  <rect x="1290" y="1075" width="330" height="82" class="db"/>
+  <text x="1455" y="1107" text-anchor="middle" class="box-title">PostgreSQL</text>
+  <text x="1455" y="1133" text-anchor="middle" class="box-copy">Recorded history and reasons</text>
+  <path d="M490 1116 H692" class="line"/><path d="M1070 1116 H1282" class="line"/>
+  <text x="885" y="1181" text-anchor="middle" class="label">Journey read does not call Guard or PayPal again.</text>
+</svg>

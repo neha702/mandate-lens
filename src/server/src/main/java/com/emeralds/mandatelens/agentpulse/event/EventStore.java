@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.dao.DuplicateKeyException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +20,8 @@ import java.util.Map;
 /** PostgreSQL-backed AgentPulse journey event store. */
 @Repository
 public class EventStore {
+    private static final Logger logger = LoggerFactory.getLogger(EventStore.class);
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
 
@@ -37,6 +41,7 @@ public class EventStore {
         details.put("sourceLabel", event.source());
         if (event.amount() != null) details.put("amount", event.amount());
         if (event.currency() != null) details.put("currency", event.currency());
+        details.putAll(event.structuredDetails());
         String json = writeJson(details);
         try {
             jdbc.update("""
@@ -46,10 +51,14 @@ public class EventStore {
                     """, event.id(), event.journeyId(), event.type(), normalizeSource(event.source()),
                     normalizeOutcome(event.type()), json, Timestamp.from(event.occurredAt()));
         } catch (DuplicateKeyException exception) {
+            logger.warn("Journey event rejected as duplicate: eventId={} journeyId={} type={}",
+                    event.id(), event.journeyId(), event.type());
             throw new DuplicateEventException(event.id());
         }
         jdbc.update("UPDATE trust.trust_journeys SET last_event_at = ?, updated_at = NOW() WHERE journey_id = ?",
                 Timestamp.from(event.occurredAt()), event.journeyId());
+        logger.info("Journey event saved: eventId={} journeyId={} type={} source={}",
+                event.id(), event.journeyId(), event.type(), normalizeSource(event.source()));
         return event;
     }
 
@@ -63,9 +72,12 @@ public class EventStore {
                     BigDecimal amount = decimal(details.get("amount"));
                     String currency = string(details.get("currency"));
                     String message = string(details.get("message"));
+                    Map<String, Object> structured = new LinkedHashMap<>(details);
+                    structured.keySet().removeAll(List.of("message", "sourceLabel", "amount", "currency"));
                     return new PurchaseEvent(rs.getString("event_id"), rs.getString("journey_id"),
                             rs.getTimestamp("occurred_at").toInstant(), rs.getString("event_type"),
-                            string(details.getOrDefault("sourceLabel", rs.getString("source"))), amount, currency, message);
+                            string(details.getOrDefault("sourceLabel", rs.getString("source"))), amount, currency,
+                            message, structured);
                 }, journeyId).stream().sorted(Comparator.comparing(PurchaseEvent::occurredAt)
                 .thenComparing(PurchaseEvent::id)).toList();
     }

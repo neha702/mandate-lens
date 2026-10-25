@@ -43,12 +43,18 @@ public class StoreSyncCartController {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
         } catch (PayPalOrdersClient.PayPalGatewayException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage());
+        } catch (HttpAgentGuardClient.AgentGuardUnavailableException exception) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
+        } catch (StoreSyncGuardService.GuardDecisionDeniedException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage());
+        } catch (StoreSyncGuardService.GuardIntegrationException exception) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage());
         }
     }
 
-    /** Replaces the complete cart and patches the linked PayPal order amount. */
+    /** Replaces the complete cart (an empty items list clears it) and syncs the linked PayPal order. */
     @PutMapping("/{cartId}")
     public StoreSyncCartResponse replace(@PathVariable String cartId,
                                          @Valid @RequestBody StoreSyncCartRequest request) {

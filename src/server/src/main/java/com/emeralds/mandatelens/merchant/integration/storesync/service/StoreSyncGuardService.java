@@ -1,88 +1,102 @@
 package com.emeralds.mandatelens.merchant.integration.storesync.service;
 
-import com.emeralds.mandatelens.agentguard.client.AgentGuardClient;
-import com.emeralds.mandatelens.agentguard.model.EvaluateCartRequest;
-import com.emeralds.mandatelens.agentguard.model.EvaluateCheckoutRequest;
-import com.emeralds.mandatelens.agentguard.model.GuardCart;
 import com.emeralds.mandatelens.agentguard.model.GuardDecision;
-import com.emeralds.mandatelens.agentguard.model.GuardDecisionResponse;
+import com.emeralds.mandatelens.agentpulse.api.MerchantOperationRequests;
+import com.emeralds.mandatelens.agentpulse.orchestration.MerchantOperationService;
+import com.emeralds.mandatelens.mandate.model.Mandate;
+import com.emeralds.mandatelens.mandate.service.MandateService;
 import com.emeralds.mandatelens.merchant.cart.model.Cart;
 import com.emeralds.mandatelens.merchant.cart.model.CartLine;
 import com.emeralds.mandatelens.merchant.integration.storesync.repository.StoreSyncOrderRepository.GuardContext;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
-/** Maps Store Sync merchant cart facts to AgentGuard and applies the returned decision. */
+/** Bridges the local Store Sync simulator to the merchant operation check/result flow. */
 @Service
 public class StoreSyncGuardService {
-    private final AgentGuardClient client;
-    private final boolean enabled;
+    private final MerchantOperationService operations;
+    private final MandateService mandates;
 
-    public StoreSyncGuardService(AgentGuardClient client,
-                                 @Value("${agentguard.enabled:true}") boolean enabled) {
-        this.client = client;
-        this.enabled = enabled;
+    public StoreSyncGuardService(MerchantOperationService operations, MandateService mandates) {
+        this.operations = operations;
+        this.mandates = mandates;
     }
 
-    public GuardDecisionResponse evaluateCart(String cartId, GuardContext context,
-                                               Cart current, String currentCountry,
-                                               Cart proposed, String proposedCountry) {
-        // Only the loopback-only storesync-sandbox-test profile skips the Guard call.
-        if (!enabled) return null;
-        requireContext(context);
-        GuardDecisionResponse response = client.evaluateCart(new EvaluateCartRequest(context.journeyId(), context.mandateId(),
-                "UPDATE_CART", toGuardCart(cartId, current, currentCountry),
-                toGuardCart(cartId, proposed, proposedCountry)));
-        requireAllow(response);
-        return response;
+    public String checkCartUpdate(String cartId, GuardContext context, Cart current,
+                                  Cart proposed, String proposedCountry) {
+        return check(cartId, context, "UPDATE_CART", current, proposed, proposedCountry);
     }
 
-    public GuardDecisionResponse evaluateCheckout(String cartId, GuardContext context,
-                                                   Cart cart, String shippingCountry) {
-        // Only the loopback-only storesync-sandbox-test profile skips the Guard call.
-        if (!enabled) return null;
-        requireContext(context);
-        GuardDecisionResponse response = client.evaluateCheckout(new EvaluateCheckoutRequest(context.journeyId(),
-                context.mandateId(), toGuardCart(cartId, cart, shippingCountry)));
-        requireAllow(response);
-        return response;
+    public String checkCartAdd(String cartId, GuardContext context, Cart proposed, String proposedCountry) {
+        Cart empty = new Cart(cartId, context.journeyId(), List.of(), BigDecimal.ZERO, proposed.currency(), List.of());
+        return check(cartId, context, "ADD_ITEM", empty, proposed, proposedCountry);
     }
 
-    private GuardCart toGuardCart(String cartId, Cart cart, String shippingCountry) {
-        if (shippingCountry == null || shippingCountry.isBlank()) {
+    public String checkCheckout(String cartId, GuardContext context, Cart cart, String shippingCountry) {
+        return check(cartId, context, "CHECKOUT", cart, cart, shippingCountry);
+    }
+
+    public String newResultOnlyOperationId() {
+        return "op-" + UUID.randomUUID();
+    }
+
+    public void reportResult(String operationId, GuardContext context, String cartId,
+                             String eventType, String outcome, BigDecimal total, String currency,
+                             String merchantReference, String failureCode, String message,
+                             String paypalOrderId, String paypalCaptureId,
+                             List<MerchantOperationRequests.ChangedItem> changedItems) {
+        String merchantId = merchantFor(context);
+        operations.result(operationId, new MerchantOperationRequests.Result(
+                "evt-store-sync-" + UUID.randomUUID(), merchantId, context.journeyId(), cartId,
+                eventType, outcome, Instant.now(), merchantReference,
+                new MerchantOperationRequests.ResultDetails(total, currency, failureCode, message,
+                        paypalOrderId, paypalCaptureId, changedItems)));
+    }
+
+    private String check(String cartId, GuardContext context, String action, Cart current,
+                         Cart proposed, String proposedCountry) {
+        if (proposedCountry == null || proposedCountry.isBlank()) {
             throw new GuardIntegrationException("Shipping country is required for AgentGuard evaluation.");
         }
-        List<GuardCart.Item> items = cart.items().stream().map(this::toGuardItem).toList();
-        return new GuardCart(cartId, items, cart.subtotal(), cart.currency(), shippingCountry);
-    }
-
-    private GuardCart.Item toGuardItem(CartLine item) {
-        if (item.category() == null || item.category().isBlank()) {
-            throw new GuardIntegrationException("Catalog category is required for AgentGuard evaluation.");
-        }
-        return new GuardCart.Item(item.variantId(), item.category(), item.quantity(), item.unitPrice());
-    }
-
-    private void requireContext(GuardContext context) {
-        if (context == null || context.journeyId() == null || context.journeyId().isBlank()
-                || context.mandateId() == null || context.mandateId().isBlank()) {
-            throw new GuardIntegrationException("This cart has no journey-to-mandate mapping.");
-        }
-    }
-
-    private void requireAllow(GuardDecisionResponse response) {
-        if (response == null || response.decisionId() == null || response.decisionId().isBlank()
-                || response.decision() == null) {
-            throw new GuardIntegrationException("AgentGuard returned an invalid decision response.");
-        }
+        String merchantId = merchantFor(context);
+        var response = operations.check(new MerchantOperationRequests.Check(
+                merchantId, context.journeyId(), cartId, action,
+                "storesync:" + cartId + ":" + UUID.randomUUID(),
+                toRequestCart(current), toRequestCart(proposed), proposedCountry));
         if (response.decision() != GuardDecision.ALLOW) {
             String reasons = response.reasons().stream()
                     .map(reason -> reason.code() + ": " + reason.message())
                     .reduce((left, right) -> left + "; " + right).orElse("No reason provided.");
             throw new GuardDecisionDeniedException(response.decision(), reasons);
         }
+        return response.operationId();
+    }
+
+    private String merchantFor(GuardContext context) {
+        if (context == null || context.journeyId() == null || context.journeyId().isBlank()
+                || context.mandateId() == null || context.mandateId().isBlank()) {
+            throw new GuardIntegrationException("This cart has no journey-to-mandate mapping.");
+        }
+        Mandate mandate = mandates.findByJourneyId(context.journeyId())
+                .orElseThrow(() -> new GuardIntegrationException("No active mandate is linked to this cart."));
+        if (!mandate.mandateId().equals(context.mandateId())) {
+            throw new GuardIntegrationException("The cart mandate mapping is no longer valid.");
+        }
+        return mandate.merchantId();
+    }
+
+    private MerchantOperationRequests.Cart toRequestCart(Cart cart) {
+        List<MerchantOperationRequests.Item> items = cart.items().stream().map(this::toRequestItem).toList();
+        return new MerchantOperationRequests.Cart(cart.currency(), items, cart.subtotal());
+    }
+
+    private MerchantOperationRequests.Item toRequestItem(CartLine line) {
+        return new MerchantOperationRequests.Item(line.variantId(), line.category(),
+                line.quantity(), line.unitPrice());
     }
 
     public static class GuardIntegrationException extends RuntimeException {

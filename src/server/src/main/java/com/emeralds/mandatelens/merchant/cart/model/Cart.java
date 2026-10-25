@@ -14,6 +14,7 @@ import java.util.List;
  */
 public record Cart(
         String id,
+        String journeyId,
         List<CartLine> items,
         BigDecimal subtotal,
         String currency,

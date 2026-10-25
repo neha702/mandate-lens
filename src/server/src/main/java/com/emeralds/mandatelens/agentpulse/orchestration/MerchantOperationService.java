@@ -6,12 +6,16 @@ import com.emeralds.mandatelens.agentguard.model.EvaluateCheckoutRequest;
 import com.emeralds.mandatelens.agentguard.model.GuardCart;
 import com.emeralds.mandatelens.agentguard.model.GuardDecision;
 import com.emeralds.mandatelens.agentguard.model.GuardDecisionResponse;
+import com.emeralds.mandatelens.agentguard.repository.GuardDecisionRepository;
 import com.emeralds.mandatelens.agentpulse.api.MerchantOperationRequests;
 import com.emeralds.mandatelens.agentpulse.event.EventStore;
 import com.emeralds.mandatelens.agentpulse.operation.PendingOperationRepository;
 import com.emeralds.mandatelens.mandate.model.Mandate;
 import com.emeralds.mandatelens.mandate.service.MandateService;
+import com.emeralds.mandatelens.mandate.service.MandateRegistrationService;
 import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,20 +25,28 @@ import java.util.UUID;
 
 @Service
 public class MerchantOperationService {
+    private static final Logger logger = LoggerFactory.getLogger(MerchantOperationService.class);
+
     private final AgentGuardClient guard;
     private final MandateService mandates;
+    private final MandateRegistrationService mandateRegistrations;
     private final PendingOperationRepository operations;
+    private final GuardDecisionRepository guardDecisions;
     private final GuardDecisionRecorder decisionRecorder;
     private final EventStore eventStore;
     private final long callbackTimeoutSeconds;
 
     public MerchantOperationService(AgentGuardClient guard, MandateService mandates,
-                                    PendingOperationRepository operations, GuardDecisionRecorder decisionRecorder,
+                                    MandateRegistrationService mandateRegistrations,
+                                    PendingOperationRepository operations, GuardDecisionRepository guardDecisions,
+                                    GuardDecisionRecorder decisionRecorder,
                                     EventStore eventStore,
                                     @Value("${mandatelens.operation.callback-timeout-seconds:300}") long callbackTimeoutSeconds) {
         this.guard = guard;
         this.mandates = mandates;
+        this.mandateRegistrations = mandateRegistrations;
         this.operations = operations;
+        this.guardDecisions = guardDecisions;
         this.decisionRecorder = decisionRecorder;
         this.eventStore = eventStore;
         this.callbackTimeoutSeconds = callbackTimeoutSeconds;
@@ -47,6 +59,11 @@ public class MerchantOperationService {
         if (!mandate.merchantId().equalsIgnoreCase(request.merchantId())) {
             throw new IllegalArgumentException("merchantId does not match the journey mandate.");
         }
+        logger.info("AgentGuard check started: action={} journeyId={} cartId={} guardClient={} currentTotal={} proposedTotal={} currency={} mandateLimit={}",
+                request.action(), request.journeyId(), request.cartId(), guard.getClass().getSimpleName(),
+                request.currentCart().total(), request.proposedCart().total(), request.proposedCart().currency(),
+                mandate.maxAmount());
+        var authorization = mandateRegistrations.ensureRegistered(mandate);
         var previous = operations.findByIdempotencyKey(request.merchantId(), request.idempotencyKey());
         if (previous.isPresent()) {
             var existing = previous.get();
@@ -54,9 +71,11 @@ public class MerchantOperationService {
                 throw new IllegalArgumentException("Idempotency key was reused with different request data.");
             }
             if (existing.decisionId() == null) throw new OperationAlreadyExistsException(existing.operationId(), existing.status());
-            var saved = operations.findDecision(existing.decisionId()).orElseThrow();
+            var saved = guardDecisions.find(existing.decisionId()).orElseThrow();
             return new CheckResponse(existing.operationId(), existing.journeyId(), existing.decisionId(),
-                    saved.decision(), saved.reasons(), saved.ruleResults(), existing.status());
+                    saved.decision(), saved.reasons(), saved.ruleResults(), saved.policyVersion(),
+                    saved.evaluatedAt(), saved.contextFingerprint(), saved.findings(), existing.status(),
+                    authorization.authorizationId(), authorization.authorizationHash(), authorization.verificationStatus());
         }
 
         String operationId = "op-" + UUID.randomUUID();
@@ -79,16 +98,29 @@ public class MerchantOperationService {
             }
         } catch (RuntimeException exception) {
             operations.markCheckFailed(operationId);
+            logger.warn("AgentGuard check failed: operationId={} action={} journeyId={} cartId={} guardClient={} error={}",
+                    operationId, request.action(), request.journeyId(), request.cartId(),
+                    guard.getClass().getSimpleName(), exception.getMessage(), exception);
             throw exception;
         }
 
-        GuardDecision publicDecision = decision.decision() == GuardDecision.ALLOW ? GuardDecision.ALLOW : GuardDecision.BLOCK;
+        GuardDecision publicDecision = decision.decision();
+        logger.info("AgentGuard check completed: operationId={} decisionId={} action={} journeyId={} cartId={} guardClient={} decision={} proposedTotal={} {} mandateLimit={} {} policyVersion={} reasonCodes={} rules={}",
+                operationId, decision.decisionId(), request.action(), request.journeyId(), request.cartId(),
+                guard.getClass().getSimpleName(), publicDecision, request.proposedCart().total(),
+                request.proposedCart().currency(), mandate.maxAmount(), mandate.currency(), decision.policyVersion(),
+                decision.reasons().stream().map(GuardDecisionResponse.Reason::code).toList(),
+                decision.ruleResults().stream().map(rule -> rule.ruleId() + ":" + rule.result()).toList());
         decisionRecorder.record(operationId, request.journeyId(), mandate.mandateId(), request.action(),
-                decision.decisionId(), publicDecision, decision.reasons(), decision.ruleResults(), request);
+                decision.decisionId(), publicDecision, decision.reasons(), decision.ruleResults(),
+                decision.findings(), decision.policyVersion(), decision.evaluatedAt(),
+                decision.contextFingerprint(), request, authorization.authorizationHash());
         String status = publicDecision == GuardDecision.ALLOW
                 ? "AWAITING_MERCHANT_RESULT" : "NOT_APPLIED";
         return new CheckResponse(operationId, request.journeyId(), decision.decisionId(),
-                publicDecision, decision.reasons(), decision.ruleResults(), status);
+                publicDecision, decision.reasons(), decision.ruleResults(), decision.policyVersion(),
+                decision.evaluatedAt(), decision.contextFingerprint(), decision.findings(), status,
+                authorization.authorizationId(), authorization.authorizationHash(), authorization.verificationStatus());
     }
 
     @Transactional
@@ -129,10 +161,14 @@ public class MerchantOperationService {
             // Event is persisted with the callback in the same service transaction.
             eventStore.save(new com.emeralds.mandatelens.agentpulse.event.PurchaseEvent(result.eventId(),
                     result.journeyId(), result.occurredAt(), result.eventType(), "MERCHANT",
-                    result.details().total(), result.details().currency(), "operationId=" + operationId
-                    + ";outcome=" + result.outcome() + ";reference=" + result.merchantReference()
-                    + ";details=" + result.details()));
+                    result.details().total(), result.details().currency(), "Merchant result received.",
+                    java.util.Map.of("operationId", operationId, "outcome", result.outcome(),
+                            "merchantReference", result.merchantReference() == null ? "" : result.merchantReference(),
+                            "resultDetails", result.details())));
         }
+        logger.info("Merchant result {}: operationId={} journeyId={} cartId={} eventType={} outcome={} total={} currency={}",
+                inserted ? "accepted" : "duplicate", operationId, result.journeyId(), result.cartId(),
+                result.eventType(), result.outcome(), result.details().total(), result.details().currency());
         return new ResultResponse(operationId, inserted, !inserted,
                 inserted ? status : operation.status());
     }
@@ -166,7 +202,11 @@ public class MerchantOperationService {
 
     public record CheckResponse(String operationId, String journeyId, String decisionId, GuardDecision decision,
                                 List<GuardDecisionResponse.Reason> reasons,
-                                List<GuardDecisionResponse.RuleResult> ruleResults, String operationStatus) { }
+                                List<GuardDecisionResponse.RuleResult> ruleResults, String policyVersion,
+                                Instant evaluatedAt, String contextFingerprint,
+                                List<com.emeralds.mandatelens.agentguard.model.RuleFinding> findings,
+                                String operationStatus, String authorizationId,
+                                String authorizationHash, String verificationStatus) { }
     public record ResultResponse(String operationId, boolean accepted, boolean alreadyReceived, String status) { }
 
     public static class OperationNotFoundException extends RuntimeException {

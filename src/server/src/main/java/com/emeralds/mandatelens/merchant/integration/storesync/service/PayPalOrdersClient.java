@@ -38,6 +38,7 @@ public class PayPalOrdersClient {
     /** Creates an Orders v2 order for the catalog-priced cart total. */
     public OrderResult createOrder(String cartId, Map<String, Object> orderBody) {
         requireCredentials();
+        logger.info("PayPal order creation started: cartId={}", cartId);
         OrderResponse response = withRateLimitRetry(() -> paypal.post().uri("/v2/checkout/orders")
                 .header("Authorization", "Bearer " + accessToken())
                 .header("PayPal-Request-Id", "CART-ORDER-" + cartId)
@@ -49,6 +50,7 @@ public class PayPalOrdersClient {
         String approvalUrl = response.links() == null ? null : response.links().stream()
                 .filter(link -> "approve".equalsIgnoreCase(link.rel()))
                 .map(Link::href).findFirst().orElse(null);
+        logger.info("PayPal order created: cartId={} approvalUrlPresent={}", cartId, approvalUrl != null);
         return new OrderResult(response.id(), approvalUrl);
     }
 
@@ -65,16 +67,19 @@ public class PayPalOrdersClient {
         } else if (removeShipping) {
             patch.add(Map.of("op", "remove", "path", "/purchase_units/@reference_id=='default'/shipping"));
         }
+        logger.info("PayPal order update started: cartId={} revision={}", cartId, revision);
         withRateLimitRetry(() -> paypal.patch().uri("/v2/checkout/orders/{orderId}", orderId)
                 .header("Authorization", "Bearer " + accessToken())
                 .header("PayPal-Request-Id", "CART-UPDATE-" + cartId + "-" + revision)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(patch).retrieve().toBodilessEntity());
+        logger.info("PayPal order updated: cartId={} revision={}", cartId, revision);
     }
 
     /** Captures only when called by the checkout orchestration after an AgentGuard ALLOW decision. */
     public CaptureResult captureOrder(String cartId, String orderId) {
         requireCredentials();
+        logger.info("PayPal capture started: cartId={}", cartId);
         CaptureResponse response = withRateLimitRetry(() -> paypal.post()
                 .uri("/v2/checkout/orders/{orderId}/capture", orderId)
                 .header("Authorization", "Bearer " + accessToken())
@@ -89,6 +94,7 @@ public class PayPalOrdersClient {
         if (capture == null || capture.id() == null || !"COMPLETED".equalsIgnoreCase(capture.status())) {
             throw new PayPalGatewayException("PayPal did not return a completed capture.");
         }
+        logger.info("PayPal capture completed: cartId={} status={}", cartId, capture.status());
         return new CaptureResult(capture.status(), capture.id());
     }
 
@@ -119,6 +125,7 @@ public class PayPalOrdersClient {
             } catch (RestClientResponseException exception) {
                 if (exception.getStatusCode().value() != 429 || attempt >= 3) throw gatewayError(exception);
                 long waitMillis = retryDelayMillis(exception, attempt);
+                logger.warn("PayPal rate limit response: attempt={} retryDelayMs={}", attempt + 1, waitMillis);
                 try {
                     Thread.sleep(waitMillis);
                 } catch (InterruptedException interrupted) {
