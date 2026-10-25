@@ -4,13 +4,15 @@ This guide walks through the local Mandate Lens API and, optionally, a full Stor
 
 ## 1. Start PostgreSQL and the API
 
-Use Java 17+, PostgreSQL, and the Maven wrapper. Create a local database named `mandatelens` and make sure the connection matches the defaults below, or set `DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD` in the API terminal. Flyway applies the schema and the application seeds the demo journey, mandate, and catalog on startup.
+Use Java 17+ and PostgreSQL. Create a local database named `mandatelens`, then set its connection values in `local-env.sh` (`DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD`). Set `SPRING_PROFILES_ACTIVE=storesync-simulator,agentguard-deterministic` there to run the Store Sync simulator with local policy enforcement. Flyway applies the schema and the application seeds the demo journey, mandate, and catalog on startup.
 
-From the repository root, start the API with the deterministic local AgentGuard implementation:
+From the repository root, start the API:
 
 ```sh
-SPRING_PROFILES_ACTIVE=agentguard-deterministic ./mvnw -pl src/server spring-boot:run
+make run-server
 ```
+
+`make run-server` sources `local-env.sh` and then starts the Maven wrapper. To exercise only the merchant operation API, set `SPRING_PROFILES_ACTIVE=agentguard-deterministic` in `local-env.sh`; include `storesync-simulator` when you also want the Store Sync routes. Restart the server after changing profiles.
 
 In a second terminal, check that it is ready and inspect the seeded data:
 
@@ -65,18 +67,20 @@ Read the journey URL from step 1 again. It should now include the decision, oper
 
 ## 3. Optional: run Store Sync through PayPal Sandbox
 
-This path calls PayPal Orders v2 to create and capture an order. It requires PayPal Sandbox REST app credentials and a Sandbox buyer account. Create an ignored repository-root `.env` file with:
+This path calls PayPal Orders v2 to create and capture an order. It requires PayPal Sandbox REST app credentials and a Sandbox buyer account. Put credentials in the ignored repository-root `.env` file:
 
 ```properties
 PAYPAL_ORDERS_CLIENT_ID=your-sandbox-client-id
 PAYPAL_ORDERS_CLIENT_SECRET=your-sandbox-client-secret
 ```
 
-Start another API instance (stop the API from step 1 first) with the local permissive AgentGuard stub and Store Sync simulator enabled:
+For the end-to-end checkout with policy checks enabled, set this profile in `local-env.sh`:
 
 ```sh
-SPRING_PROFILES_ACTIVE=storesync-simulator,storesync-sandbox-test ./mvnw -pl src/server spring-boot:run
+SPRING_PROFILES_ACTIVE=storesync-simulator,agentguard-deterministic
 ```
+
+Stop the currently running server, then run `make run-server` again. Keep `make run-storefront` in a separate terminal if you want to use the shop UI; the API examples below can also be run directly with `curl`.
 
 Create a cart. The `shipping_address.country_code` is needed for Guard evaluation; the cart is priced from the local catalog. Copy the response's `id`, `payment_method.token` (PayPal order ID), and `payment_method.approval_url`:
 
@@ -98,15 +102,15 @@ curl -s -X POST 'http://localhost:8080/merchant-cart/<cartId>/checkout' \
   -d '{"payment_method":{"type":"paypal","token":"<paypalOrderId>"}}'
 ```
 
-The response should have status `COMPLETED` and a payment confirmation. The `storesync-sandbox-test` profile always returns `ALLOW` from its local Guard stub; use the `agentguard-deterministic` profile in step 2 to exercise local policy decisions. Do not expose the Store Sync simulator outside localhost; its local profile does not verify PayPal JWTs.
+The response should have status `COMPLETED` and a payment confirmation. Do not expose the Store Sync simulator outside localhost; its local profile does not verify PayPal JWTs.
 
-To exercise the mandate amount/category/country rules during this Store Sync flow, use the deterministic Guard profile instead of the permissive stub:
+For PayPal protocol-only testing, you can switch the profile in `local-env.sh` to the permissive Guard stub:
 
 ```sh
-SPRING_PROFILES_ACTIVE=storesync-simulator,agentguard-deterministic ./mvnw -pl src/server spring-boot:run
+SPRING_PROFILES_ACTIVE=storesync-simulator,storesync-sandbox-test
 ```
 
-Keep the same PayPal Sandbox credentials in `.env`. A cart total above the demo mandate's USD 200 limit should then be rejected with HTTP `409` before its PayPal order is created or updated.
+Restart with `make run-server`. This stub always returns `ALLOW`; use `storesync-simulator,agentguard-deterministic` to enforce the demo mandate's USD 200 limit. Under deterministic mode, a cart total above USD 200 should be rejected with HTTP `409` before its PayPal order is created or updated.
 
 ## Troubleshooting
 
