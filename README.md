@@ -6,7 +6,9 @@ Mandate Lens is the Spring Boot service under `src/server`. It exposes a merchan
 
 - `src/server/` — Spring Boot / Java 17 API and service modules.
 - `storefront/` — optional React shop used for presentations; it is not a Mandate Lens service.
-- `docs/hackathon-design.md` — current as-built hackathon flow, AP2-style envelope, APIs, schema, and limitations.
+- `docs/mandatelens_design.md` — current as-built hackathon architecture and flow overview.
+- `docs/database-schemas.md` — all PostgreSQL schemas, tables, columns, keys, and migrations.
+- `docs/api-contracts.md` — Mandate Lens, Store Sync simulator, AgentGuard, and simulated mandate contracts.
 - `docs/mandatelens_class_diagram.puml` — PlantUML source for the core operation and journey-read flow.
 - `AgentPulse_Hackathon_Starter_Guide.docx` — project and demo guide.
 
@@ -42,7 +44,7 @@ flowchart TD
     Mandate --> DB
 ```
 
-The current hackathon flow and data design is documented in [docs/hackathon-design.md](docs/hackathon-design.md). The PlantUML diagram covers the core operation and journey-read paths; the AP2 intake and Store Sync simulator flow are detailed in the design document.
+The current hackathon overview is in [docs/mandatelens_design.md](docs/mandatelens_design.md). See [docs/database-schemas.md](docs/database-schemas.md) for the full PostgreSQL schema reference and [docs/api-contracts.md](docs/api-contracts.md) for the mandate and HTTP contracts. The PlantUML diagram covers the core operation and journey-read paths; the AP2 intake and Store Sync simulator flow are detailed in the design document.
 
 ![Mandate Lens hackathon end-to-end flow](docs/hackathon-flow.svg)
 
@@ -101,7 +103,7 @@ Guard decisions use the merchant-facing operation API described below. It evalua
 
 This API needs an active mandate linked to the journey and a reachable AgentGuard service configured through `agentguard.base-url`. The bundled demo mandate belongs to journey `demo-shoes-001` and merchant `STRIDEHUB`. The current AgentGuard HTTP adapter only permits a loopback URL while the teams agree on authentication.
 
-The hackathon demo accepts one simulated AP2-style authorization envelope at `POST /api/v1/authorizations`. Mandate Lens stores the envelope in the mandate JSONB evidence field and registers its normalized constraints plus an envelope hash with AgentGuard. Each later decision is linked to that authorization hash. The demo does not receive or cryptographically verify a real AP2 mandate or payment credential. See [docs/hackathon-design.md](docs/hackathon-design.md) for the envelope shape and schema impact.
+The hackathon demo accepts one simulated AP2-style authorization envelope at `POST /api/v1/authorizations`. Mandate Lens stores the envelope in the mandate JSONB evidence field and registers its normalized constraints plus an envelope hash with AgentGuard. Each later decision is linked to that authorization hash. The demo does not receive or cryptographically verify a real AP2 mandate or payment credential. See [docs/api-contracts.md](docs/api-contracts.md) for the mandate contract and [docs/database-schemas.md](docs/database-schemas.md) for its persistence.
 
 `GET /api/v1/journeys/{journeyId}?merchantId={merchantId}` returns the saved journey status, operation statuses, Guard decisions and reasons, and ordered event timeline. For example, the seeded demo journey can be read with `GET /api/v1/journeys/demo-shoes-001?merchantId=STRIDEHUB`. The merchant ID match is a local demo ownership check; use authenticated merchant identity before exposing this endpoint outside localhost.
 

@@ -97,6 +97,8 @@ Removal deltas and payment references are stored in the existing callback/event 
 ## 9. Related project docs
 
 - [README and local run instructions](../README.md)
+- [All database schemas and migrations](database-schemas.md)
+- [HTTP and simulated mandate contracts](api-contracts.md)
 - [Rendered end-to-end flow diagram](hackathon-flow.svg)
 - [Core operation and journey-read diagram source](mandatelens_class_diagram.puml)
 - [Journey read sequence](mandatelens_journey_read_sequence.puml)
