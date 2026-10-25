@@ -83,7 +83,7 @@ public class MandateService implements ApplicationRunner {
                 (mandate_id, merchant_id, user_ref, authorization_source, authorization_reference, status,
                  max_amount, currency, allowed_categories, allowed_product_ids, shipping_country,
                  expires_at, authorization_evidence)
-                VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?::text[], ?::text[], ?, ?::jsonb)
+                VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, CAST(? AS text[]), CAST(? AS text[]), ?, ?, CAST(? AS jsonb))
                 ON CONFLICT (mandate_id) DO UPDATE SET user_ref = EXCLUDED.user_ref,
                     merchant_id = EXCLUDED.merchant_id, max_amount = EXCLUDED.max_amount,
                     currency = EXCLUDED.currency, allowed_categories = EXCLUDED.allowed_categories,

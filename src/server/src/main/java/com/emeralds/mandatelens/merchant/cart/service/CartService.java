@@ -7,6 +7,8 @@ import com.emeralds.mandatelens.merchant.catalog.service.ProductService;
 import com.emeralds.mandatelens.merchant.cart.model.Cart;
 import com.emeralds.mandatelens.merchant.cart.model.CartItemRequest;
 import com.emeralds.mandatelens.merchant.cart.model.CartLine;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +30,7 @@ import java.util.UUID;
  */
 @Service
 public class CartService {
+    private static final Logger logger = LoggerFactory.getLogger(CartService.class);
 
     private final ProductService productService;
     private final EventStore eventStore;
@@ -75,6 +78,8 @@ public class CartService {
                 cart.id(), cart.journeyId());
         saveLines(cart);
         recordCartEvent(cart, "CART_CREATED");
+        logger.info("Cart persisted: action=created cartId={} journeyId={} itemCount={} total={} currency={}",
+                cart.id(), cart.journeyId(), cart.items().size(), cart.subtotal(), cart.currency());
     }
 
     /** Replaces all lines, re-resolves catalog values, and recalculates the subtotal. */
@@ -110,6 +115,8 @@ public class CartService {
                 """, updated.currency(), updated.subtotal(), updated.subtotal(), updated.id());
         saveLines(updated);
         recordCartEvent(updated, "CART_REPLACED");
+        logger.info("Cart persisted: action=replaced cartId={} journeyId={} itemCount={} total={} currency={}",
+                updated.id(), updated.journeyId(), updated.items().size(), updated.subtotal(), updated.currency());
     }
 
     /** Loads a cart from PostgreSQL, or throws when its ID is unknown. */

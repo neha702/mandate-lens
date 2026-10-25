@@ -62,6 +62,8 @@ From the project root in PowerShell:
 .\mvnw.cmd -pl src/server spring-boot:run
 ```
 
+On macOS/Linux, run `make run-server` from the project root. It sources `local-env.sh` and starts the backend with the Maven wrapper. In a second terminal, run `make run-storefront` to start the shop; it installs locked npm dependencies if needed and points the storefront at `http://localhost:8080`.
+
 The API runs at `http://localhost:8080`.
 
 ## Run the shop frontend

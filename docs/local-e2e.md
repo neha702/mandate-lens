@@ -26,6 +26,8 @@ The demo mandate is simulated and allows up to USD 200 for `RUNNING_SHOES` shipp
 
 Submit an allowed add-item check. The API response contains an `operationId`; use that exact value in the result callback below. The idempotency key must be unique for each new check.
 
+Watch the API terminal for `HTTP request completed`, `AgentGuard check started`, and `AgentGuard check completed` entries. They show the request status/duration and the selected Guard client, proposed cart total, mandate limit, final decision, and rule results. Each HTTP response includes an `X-Request-Id` that matches the request log. Request/response bodies are not logged.
+
 ```sh
 curl -s -X POST http://localhost:8080/api/v1/merchant-operations/check \
   -H 'Content-Type: application/json' \
@@ -97,6 +99,14 @@ curl -s -X POST 'http://localhost:8080/merchant-cart/<cartId>/checkout' \
 ```
 
 The response should have status `COMPLETED` and a payment confirmation. The `storesync-sandbox-test` profile always returns `ALLOW` from its local Guard stub; use the `agentguard-deterministic` profile in step 2 to exercise local policy decisions. Do not expose the Store Sync simulator outside localhost; its local profile does not verify PayPal JWTs.
+
+To exercise the mandate amount/category/country rules during this Store Sync flow, use the deterministic Guard profile instead of the permissive stub:
+
+```sh
+SPRING_PROFILES_ACTIVE=storesync-simulator,agentguard-deterministic ./mvnw -pl src/server spring-boot:run
+```
+
+Keep the same PayPal Sandbox credentials in `.env`. A cart total above the demo mandate's USD 200 limit should then be rejected with HTTP `409` before its PayPal order is created or updated.
 
 ## Troubleshooting
 

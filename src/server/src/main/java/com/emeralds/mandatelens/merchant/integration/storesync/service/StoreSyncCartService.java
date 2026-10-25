@@ -11,6 +11,8 @@ import com.emeralds.mandatelens.merchant.integration.storesync.model.StoreSyncCa
 import com.emeralds.mandatelens.merchant.integration.storesync.model.StoreSyncCheckoutRequest;
 import com.emeralds.mandatelens.merchant.integration.storesync.repository.StoreSyncOrderRepository;
 import com.emeralds.mandatelens.merchant.integration.storesync.repository.StoreSyncOrderRepository.GuardContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -27,6 +29,8 @@ import java.util.Objects;
 /** Maps Store Sync wire requests to the merchant cart and PayPal Orders v2. */
 @Service
 public class StoreSyncCartService {
+    private static final Logger logger = LoggerFactory.getLogger(StoreSyncCartService.class);
+
     private final CartService cartService;
     private final PayPalOrdersClient ordersClient;
     private final StoreSyncOrderRepository orderRepository;
@@ -50,6 +54,8 @@ public class StoreSyncCartService {
         GuardContext guardContext = resolveGuardContext();
         Cart cart = cartService.previewCreate(guardContext.journeyId(), toCartItems(request.items()));
         StoreSyncOrderRepository.CartDetails details = cartDetails(request);
+        logger.info("Store Sync cart create: cartId={} journeyId={} itemCount={} total={} currency={}",
+                cart.id(), guardContext.journeyId(), cart.items().size(), cart.subtotal(), cart.currency());
         String operationId = agentGuard.checkCartAdd(cart.id(), guardContext, cart, country(details));
         StoreSyncOrderRepository.OrderState order = null;
         List<StoreSyncCartResponse.ValidationIssue> issues = inventoryIssues(cart);
@@ -63,12 +69,17 @@ public class StoreSyncCartService {
                 orderRepository.saveOrder(cart.id(), order);
             }
         } catch (RuntimeException exception) {
+            logger.error("Store Sync cart create failed: cartId={} journeyId={} total={} currency={} errorType={}",
+                    cart.id(), guardContext.journeyId(), cart.subtotal(), cart.currency(),
+                    exception.getClass().getSimpleName(), exception);
             reportFailure(operationId, guardContext, cart.id(), "CART_ADD_FAILED", cart,
                     null, "CART_ADD_FAILED", exception.getMessage(), List.of(), exception);
             throw exception;
         }
         agentGuard.reportResult(operationId, guardContext, cart.id(), "CART_ADD_SUCCEEDED", "SUCCESS",
                 cart.subtotal(), cart.currency(), null, null, null, null, null, List.of());
+        logger.info("Store Sync cart created: cartId={} status={} validationIssueCount={} paypalOrderCreated={}",
+                cart.id(), issues.isEmpty() ? "CREATED" : "INCOMPLETE", issues.size(), order != null);
         return response(cart, issues.isEmpty() ? "CREATED" : "INCOMPLETE", order, issues);
     }
 
@@ -83,6 +94,8 @@ public class StoreSyncCartService {
         Cart cart = cartService.previewReplace(cartId, toCartItems(request.items()));
         StoreSyncOrderRepository.CartDetails details = cartDetails(request);
         boolean removalOnly = isRemovalOnly(currentCart, cart);
+        logger.info("Store Sync cart replace: cartId={} currentTotal={} proposedTotal={} currency={} itemCount={} removalOnly={}",
+                cartId, currentCart.subtotal(), cart.subtotal(), cart.currency(), cart.items().size(), removalOnly);
         String operationId;
         if (removalOnly) {
             operationId = agentGuard.newResultOnlyOperationId();
@@ -117,6 +130,8 @@ public class StoreSyncCartService {
                 orderRepository.saveOrder(cartId, order);
             }
         } catch (RuntimeException exception) {
+            logger.error("Store Sync cart replace failed: cartId={} proposedTotal={} currency={} errorType={}",
+                    cartId, cart.subtotal(), cart.currency(), exception.getClass().getSimpleName(), exception);
             reportFailure(operationId, guardContext, cartId, failureEventType, cart,
                     null, failureEventType, exception.getMessage(), removedItems, exception);
             throw exception;
@@ -124,6 +139,8 @@ public class StoreSyncCartService {
         agentGuard.reportResult(operationId, guardContext, cartId, resultEventType, "SUCCESS",
                 cart.subtotal(), cart.currency(), order == null ? null : order.orderId(), null, null,
                 null, null, removedItems);
+        logger.info("Store Sync cart replaced: cartId={} status={} validationIssueCount={} paypalOrderPresent={}",
+                cartId, issues.isEmpty() ? "CREATED" : "INCOMPLETE", issues.size(), order != null);
         return response(cart, issues.isEmpty() ? "CREATED" : "INCOMPLETE", order, issues);
     }
 
@@ -156,12 +173,16 @@ public class StoreSyncCartService {
         StoreSyncOrderRepository.CartDetails details = orderRepository.findCartDetails(cartId).orElse(null);
         GuardContext guardContext = orderRepository.findGuardContext(cartId)
                 .orElseThrow(() -> new IllegalStateException("Cart has no journey-to-mandate mapping."));
+        logger.info("Store Sync checkout started: cartId={} total={} currency={} itemCount={}",
+                cartId, cart.subtotal(), cart.currency(), cart.items().size());
         String operationId = agentGuard.checkCheckout(cartId, guardContext, cart, country(details));
 
         PayPalOrdersClient.CaptureResult capture;
         try {
             capture = ordersClient.captureOrder(cartId, order.orderId());
         } catch (RuntimeException exception) {
+            logger.error("Store Sync PayPal capture failed: cartId={} total={} currency={} errorType={}",
+                    cartId, cart.subtotal(), cart.currency(), exception.getClass().getSimpleName(), exception);
             reportFailure(operationId, guardContext, cartId, "PAYMENT_FAILED", cart, order.orderId(),
                     "PAYMENT_ERROR", exception.getMessage(), List.of(), exception);
             if (exception instanceof PayPalOrdersClient.PayPalGatewayException gatewayException
@@ -179,6 +200,8 @@ public class StoreSyncCartService {
         agentGuard.reportResult(operationId, guardContext, cartId, "PAYMENT_SUCCEEDED", "SUCCESS",
                 cart.subtotal(), cart.currency(), order.orderId(), null, null,
                 order.orderId(), capture.captureId(), List.of());
+        logger.info("Store Sync checkout completed: cartId={} total={} currency={}",
+                cartId, cart.subtotal(), cart.currency());
         return response;
     }
 

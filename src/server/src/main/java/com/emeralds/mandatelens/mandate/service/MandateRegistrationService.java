@@ -8,6 +8,8 @@ import com.emeralds.mandatelens.agentguard.model.RegisterMandateRequest;
 import com.emeralds.mandatelens.agentguard.model.RegisterMandateResponse;
 import com.emeralds.mandatelens.mandate.model.Ap2AuthorizationEnvelope;
 import com.emeralds.mandatelens.mandate.model.Mandate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.security.MessageDigest;
@@ -18,6 +20,8 @@ import java.util.List;
 
 @Service
 public class MandateRegistrationService {
+    private static final Logger logger = LoggerFactory.getLogger(MandateRegistrationService.class);
+
     private final MandateService mandates;
     private final AgentGuardClient guard;
     private final ObjectMapper mapper;
@@ -44,6 +48,8 @@ public class MandateRegistrationService {
                 constraints.allowedCategories(), constraints.allowedProductIds(), constraints.shippingCountry(),
                 request.createdAt(), request.expiresAt(),
                 Mandate.Source.SIMULATED_AP2, envelope, null);
+        logger.info("Mandate registration started: mandateId={} journeyId={} merchantId={} maxAmount={} currency={}",
+                mandate.mandateId(), mandate.journeyId(), mandate.merchantId(), mandate.maxAmount(), mandate.currency());
         mandates.save(mandate);
         Mandate saved = mandates.findByJourneyId(mandate.journeyId())
                 .orElseThrow(() -> new IllegalStateException("Saved mandate could not be loaded."));
@@ -54,8 +60,13 @@ public class MandateRegistrationService {
     public RegistrationResponse ensureRegistered(Mandate mandate) {
         String hash = fingerprint(mandate.authorizationEvidence());
         if (mandate.agentGuardRegisteredAt() != null) {
+            logger.info("Mandate already registered with AgentGuard: mandateId={} journeyId={}",
+                    mandate.mandateId(), mandate.journeyId());
             return response(mandate, hash, "REGISTERED", mandate.agentGuardRegisteredAt());
         }
+        logger.info("Registering mandate with AgentGuard: mandateId={} journeyId={} guardClient={} maxAmount={} currency={}",
+                mandate.mandateId(), mandate.journeyId(), guard.getClass().getSimpleName(),
+                mandate.maxAmount(), mandate.currency());
         RegisterMandateResponse response = guard.registerMandate(toGuardRequest(mandate, hash));
         if (response == null || !mandate.mandateId().equals(response.mandateId())
                 || response.status() == null || !"ACTIVE".equalsIgnoreCase(response.status())
@@ -64,6 +75,8 @@ public class MandateRegistrationService {
         }
         Instant registeredAt = Instant.now();
         mandates.markAgentGuardRegistered(mandate.mandateId(), registeredAt);
+        logger.info("Mandate registered with AgentGuard: mandateId={} journeyId={} status={}",
+                mandate.mandateId(), mandate.journeyId(), response.status());
         return response(mandate, hash, "REGISTERED", registeredAt);
     }
 

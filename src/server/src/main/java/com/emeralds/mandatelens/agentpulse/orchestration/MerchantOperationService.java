@@ -14,6 +14,8 @@ import com.emeralds.mandatelens.mandate.model.Mandate;
 import com.emeralds.mandatelens.mandate.service.MandateService;
 import com.emeralds.mandatelens.mandate.service.MandateRegistrationService;
 import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +25,8 @@ import java.util.UUID;
 
 @Service
 public class MerchantOperationService {
+    private static final Logger logger = LoggerFactory.getLogger(MerchantOperationService.class);
+
     private final AgentGuardClient guard;
     private final MandateService mandates;
     private final MandateRegistrationService mandateRegistrations;
@@ -55,6 +59,10 @@ public class MerchantOperationService {
         if (!mandate.merchantId().equalsIgnoreCase(request.merchantId())) {
             throw new IllegalArgumentException("merchantId does not match the journey mandate.");
         }
+        logger.info("AgentGuard check started: action={} journeyId={} cartId={} guardClient={} currentTotal={} proposedTotal={} currency={} mandateLimit={}",
+                request.action(), request.journeyId(), request.cartId(), guard.getClass().getSimpleName(),
+                request.currentCart().total(), request.proposedCart().total(), request.proposedCart().currency(),
+                mandate.maxAmount());
         var authorization = mandateRegistrations.ensureRegistered(mandate);
         var previous = operations.findByIdempotencyKey(request.merchantId(), request.idempotencyKey());
         if (previous.isPresent()) {
@@ -90,10 +98,19 @@ public class MerchantOperationService {
             }
         } catch (RuntimeException exception) {
             operations.markCheckFailed(operationId);
+            logger.warn("AgentGuard check failed: operationId={} action={} journeyId={} cartId={} guardClient={} error={}",
+                    operationId, request.action(), request.journeyId(), request.cartId(),
+                    guard.getClass().getSimpleName(), exception.getMessage(), exception);
             throw exception;
         }
 
         GuardDecision publicDecision = decision.decision();
+        logger.info("AgentGuard check completed: operationId={} decisionId={} action={} journeyId={} cartId={} guardClient={} decision={} proposedTotal={} {} mandateLimit={} {} policyVersion={} reasonCodes={} rules={}",
+                operationId, decision.decisionId(), request.action(), request.journeyId(), request.cartId(),
+                guard.getClass().getSimpleName(), publicDecision, request.proposedCart().total(),
+                request.proposedCart().currency(), mandate.maxAmount(), mandate.currency(), decision.policyVersion(),
+                decision.reasons().stream().map(GuardDecisionResponse.Reason::code).toList(),
+                decision.ruleResults().stream().map(rule -> rule.ruleId() + ":" + rule.result()).toList());
         decisionRecorder.record(operationId, request.journeyId(), mandate.mandateId(), request.action(),
                 decision.decisionId(), publicDecision, decision.reasons(), decision.ruleResults(),
                 decision.findings(), decision.policyVersion(), decision.evaluatedAt(),
@@ -149,6 +166,9 @@ public class MerchantOperationService {
                             "merchantReference", result.merchantReference() == null ? "" : result.merchantReference(),
                             "resultDetails", result.details())));
         }
+        logger.info("Merchant result {}: operationId={} journeyId={} cartId={} eventType={} outcome={} total={} currency={}",
+                inserted ? "accepted" : "duplicate", operationId, result.journeyId(), result.cartId(),
+                result.eventType(), result.outcome(), result.details().total(), result.details().currency());
         return new ResultResponse(operationId, inserted, !inserted,
                 inserted ? status : operation.status());
     }
