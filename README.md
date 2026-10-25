@@ -46,6 +46,8 @@ flowchart TD
 
 The current hackathon overview is in [docs/mandatelens_design.md](docs/mandatelens_design.md). See [docs/database-schemas.md](docs/database-schemas.md) for the full PostgreSQL schema reference and [docs/api-contracts.md](docs/api-contracts.md) for the mandate and HTTP contracts. The PlantUML diagram covers the core operation and journey-read paths; the AP2 intake and Store Sync simulator flow are detailed in the design document.
 
+For local end-to-end checks, including the merchant operation API and optional PayPal Sandbox checkout, see [docs/local-e2e.md](docs/local-e2e.md).
+
 ![Mandate Lens hackathon end-to-end flow](docs/hackathon-flow.svg)
 
 ## Run the backend
