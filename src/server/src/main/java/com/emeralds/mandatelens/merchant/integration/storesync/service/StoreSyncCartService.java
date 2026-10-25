@@ -1,9 +1,8 @@
 package com.emeralds.mandatelens.merchant.integration.storesync.service;
 
-import com.emeralds.mandatelens.agentpulse.event.EventStore;
-import com.emeralds.mandatelens.agentpulse.event.PurchaseEvent;
 import com.emeralds.mandatelens.merchant.cart.model.Cart;
 import com.emeralds.mandatelens.merchant.cart.model.CartItemRequest;
+import com.emeralds.mandatelens.merchant.cart.model.CartLine;
 import com.emeralds.mandatelens.merchant.cart.service.CartService;
 import com.emeralds.mandatelens.mandate.model.Mandate;
 import com.emeralds.mandatelens.mandate.service.MandateService;
@@ -19,29 +18,28 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
+import java.util.Objects;
 
 /** Maps Store Sync wire requests to the merchant cart and PayPal Orders v2. */
 @Service
 public class StoreSyncCartService {
     private final CartService cartService;
     private final PayPalOrdersClient ordersClient;
-    private final EventStore eventStore;
     private final StoreSyncOrderRepository orderRepository;
     private final StoreSyncGuardService agentGuard;
     private final MandateService mandateService;
     private final String demoJourneyId;
 
     public StoreSyncCartService(CartService cartService, PayPalOrdersClient ordersClient,
-                                EventStore eventStore, StoreSyncOrderRepository orderRepository,
+                                StoreSyncOrderRepository orderRepository,
                                 StoreSyncGuardService agentGuard, MandateService mandateService,
                                 @Value("${agentguard.demo.journey-id:demo-shoes-001}") String demoJourneyId) {
         this.cartService = cartService;
         this.ordersClient = ordersClient;
-        this.eventStore = eventStore;
         this.orderRepository = orderRepository;
         this.agentGuard = agentGuard;
         this.mandateService = mandateService;
@@ -50,17 +48,27 @@ public class StoreSyncCartService {
 
     public StoreSyncCartResponse create(StoreSyncCartRequest request) throws IOException {
         GuardContext guardContext = resolveGuardContext();
-        Cart cart = cartService.create(toCartItems(request.items()));
+        Cart cart = cartService.previewCreate(guardContext.journeyId(), toCartItems(request.items()));
         StoreSyncOrderRepository.CartDetails details = cartDetails(request);
-        orderRepository.saveCartDetails(cart.id(), details);
-        orderRepository.saveGuardContext(cart.id(), guardContext);
+        String operationId = agentGuard.checkCartAdd(cart.id(), guardContext, cart, country(details));
         StoreSyncOrderRepository.OrderState order = null;
-        if (cart.availabilityIssues().isEmpty()) {
-            PayPalOrdersClient.OrderResult result = ordersClient.createOrder(cart.id(), orderBody(cart, details));
-            order = new StoreSyncOrderRepository.OrderState(result.orderId(), 0, result.approvalUrl());
-            orderRepository.saveOrder(cart.id(), order);
-        }
         List<StoreSyncCartResponse.ValidationIssue> issues = inventoryIssues(cart);
+        try {
+            cartService.commitCreate(cart);
+            orderRepository.saveCartDetails(cart.id(), details);
+            orderRepository.saveGuardContext(cart.id(), guardContext);
+            if (issues.isEmpty()) {
+                PayPalOrdersClient.OrderResult result = ordersClient.createOrder(cart.id(), orderBody(cart, details));
+                order = new StoreSyncOrderRepository.OrderState(result.orderId(), 0, result.approvalUrl());
+                orderRepository.saveOrder(cart.id(), order);
+            }
+        } catch (RuntimeException exception) {
+            reportFailure(operationId, guardContext, cart.id(), "CART_ADD_FAILED", cart,
+                    null, "CART_ADD_FAILED", exception.getMessage(), List.of(), exception);
+            throw exception;
+        }
+        agentGuard.reportResult(operationId, guardContext, cart.id(), "CART_ADD_SUCCEEDED", "SUCCESS",
+                cart.subtotal(), cart.currency(), null, null, null, null, null, List.of());
         return response(cart, issues.isEmpty() ? "CREATED" : "INCOMPLETE", order, issues);
     }
 
@@ -74,23 +82,48 @@ public class StoreSyncCartService {
         Cart currentCart = cartService.get(cartId);
         Cart cart = cartService.previewReplace(cartId, toCartItems(request.items()));
         StoreSyncOrderRepository.CartDetails details = cartDetails(request);
-        agentGuard.evaluateCart(cartId, guardContext, currentCart, country(previousDetails), cart, country(details));
-        cartService.commitReplace(cart);
-        orderRepository.saveCartDetails(cart.id(), details);
-        StoreSyncOrderRepository.OrderState order = orderRepository.findOrder(cartId).orElse(null);
-        if (cart.availabilityIssues().isEmpty()) {
-            if (order == null) {
-                PayPalOrdersClient.OrderResult result = ordersClient.createOrder(cart.id(), orderBody(cart, details));
-                order = new StoreSyncOrderRepository.OrderState(result.orderId(), 0, result.approvalUrl());
-            } else {
-                int revision = order.revision() + 1;
-                ordersClient.updateOrder(cartId, revision, order.orderId(), amount(cart), paypalItems(cart),
-                        shippingDetails(details), previousDetails != null && previousDetails.shippingAddress() != null);
-                order = new StoreSyncOrderRepository.OrderState(order.orderId(), revision, order.approvalUrl());
-            }
-            orderRepository.saveOrder(cartId, order);
+        boolean removalOnly = isRemovalOnly(currentCart, cart);
+        String operationId;
+        if (removalOnly) {
+            operationId = agentGuard.newResultOnlyOperationId();
+        } else if (currentCart.items().isEmpty()) {
+            operationId = agentGuard.checkCartAdd(cartId, guardContext, cart, country(details));
+        } else {
+            operationId = agentGuard.checkCartUpdate(cartId, guardContext, currentCart, cart, country(details));
         }
+        String resultEventType = removalOnly ? "ITEM_REMOVAL_SUCCEEDED" : "CART_UPDATE_SUCCEEDED";
+        String failureEventType = removalOnly ? "ITEM_REMOVAL_FAILED" : "CART_UPDATE_FAILED";
+        List<com.emeralds.mandatelens.agentpulse.api.MerchantOperationRequests.ChangedItem> removedItems =
+                removalOnly ? removedItems(currentCart, cart) : List.of();
+        StoreSyncOrderRepository.OrderState order;
         List<StoreSyncCartResponse.ValidationIssue> issues = inventoryIssues(cart);
+        try {
+            cartService.commitReplace(cart);
+            orderRepository.saveCartDetails(cart.id(), details);
+            order = orderRepository.findOrder(cartId).orElse(null);
+            if (removalOnly && cart.items().isEmpty()) {
+                if (order != null) orderRepository.cancelPendingOrder(cartId, order.orderId());
+                order = null;
+            } else if (issues.isEmpty()) {
+                if (order == null) {
+                    PayPalOrdersClient.OrderResult result = ordersClient.createOrder(cart.id(), orderBody(cart, details));
+                    order = new StoreSyncOrderRepository.OrderState(result.orderId(), 0, result.approvalUrl());
+                } else {
+                    int revision = order.revision() + 1;
+                    ordersClient.updateOrder(cartId, revision, order.orderId(), amount(cart), paypalItems(cart),
+                            shippingDetails(details), previousDetails != null && previousDetails.shippingAddress() != null);
+                    order = new StoreSyncOrderRepository.OrderState(order.orderId(), revision, order.approvalUrl());
+                }
+                orderRepository.saveOrder(cartId, order);
+            }
+        } catch (RuntimeException exception) {
+            reportFailure(operationId, guardContext, cartId, failureEventType, cart,
+                    null, failureEventType, exception.getMessage(), removedItems, exception);
+            throw exception;
+        }
+        agentGuard.reportResult(operationId, guardContext, cartId, resultEventType, "SUCCESS",
+                cart.subtotal(), cart.currency(), order == null ? null : order.orderId(), null, null,
+                null, null, removedItems);
         return response(cart, issues.isEmpty() ? "CREATED" : "INCOMPLETE", order, issues);
     }
 
@@ -123,13 +156,16 @@ public class StoreSyncCartService {
         StoreSyncOrderRepository.CartDetails details = orderRepository.findCartDetails(cartId).orElse(null);
         GuardContext guardContext = orderRepository.findGuardContext(cartId)
                 .orElseThrow(() -> new IllegalStateException("Cart has no journey-to-mandate mapping."));
-        agentGuard.evaluateCheckout(cartId, guardContext, cart, country(details));
+        String operationId = agentGuard.checkCheckout(cartId, guardContext, cart, country(details));
 
         PayPalOrdersClient.CaptureResult capture;
         try {
             capture = ordersClient.captureOrder(cartId, order.orderId());
-        } catch (PayPalOrdersClient.PayPalGatewayException exception) {
-            if (exception.httpStatus() == 422) {
+        } catch (RuntimeException exception) {
+            reportFailure(operationId, guardContext, cartId, "PAYMENT_FAILED", cart, order.orderId(),
+                    "PAYMENT_ERROR", exception.getMessage(), List.of(), exception);
+            if (exception instanceof PayPalOrdersClient.PayPalGatewayException gatewayException
+                    && gatewayException.httpStatus() == 422) {
                 StoreSyncCartResponse.ValidationIssue paymentIssue = new StoreSyncCartResponse.ValidationIssue(
                         "PAYMENT_ERROR", "BUSINESS_RULE", "PayPal could not complete this payment.",
                         "Choose another payment method and try again.", null);
@@ -139,16 +175,62 @@ public class StoreSyncCartService {
         }
         StoreSyncCartResponse response = response(cart, "COMPLETED", order, List.of(),
                 new StoreSyncCartResponse.PaymentConfirmation(order.orderId(), null));
-        eventStore.save(new PurchaseEvent("EVENT-" + UUID.randomUUID(), cartId, Instant.now(),
-                "PAYMENT_CAPTURED", "PAYPAL_ORDERS_V2", cart.subtotal(), cart.currency(),
-                "orderId=" + order.orderId() + ";captureId=" + capture.captureId()));
         orderRepository.saveCompletedCart(cartId, response, capture.captureId());
+        agentGuard.reportResult(operationId, guardContext, cartId, "PAYMENT_SUCCEEDED", "SUCCESS",
+                cart.subtotal(), cart.currency(), order.orderId(), null, null,
+                order.orderId(), capture.captureId(), List.of());
         return response;
     }
 
+    private void reportFailure(String operationId, GuardContext context, String cartId, String eventType,
+                               Cart cart, String reference, String failureCode, String message,
+                               List<com.emeralds.mandatelens.agentpulse.api.MerchantOperationRequests.ChangedItem> changedItems,
+                               Exception originalFailure) {
+        try {
+            agentGuard.reportResult(operationId, context, cartId, eventType, "FAILED", cart.subtotal(),
+                    cart.currency(), reference, failureCode, message, null, null, changedItems);
+        } catch (RuntimeException callbackException) {
+            originalFailure.addSuppressed(callbackException);
+        }
+    }
+
     private List<CartItemRequest> toCartItems(List<StoreSyncCartRequest.Item> items) {
-        if (items == null || items.isEmpty()) throw new IllegalArgumentException("items must contain at least one item.");
+        if (items == null) throw new IllegalArgumentException("items is required.");
         return items.stream().map(item -> new CartItemRequest(item.catalogVariantId(), item.quantity())).toList();
+    }
+
+    private boolean isRemovalOnly(Cart current, Cart proposed) {
+        Map<String, CartLine> currentById = new HashMap<>();
+        current.items().forEach(item -> currentById.put(item.variantId(), item));
+        Map<String, CartLine> proposedById = new HashMap<>();
+        proposed.items().forEach(item -> proposedById.put(item.variantId(), item));
+
+        boolean quantityRemoved = false;
+        for (CartLine next : proposed.items()) {
+            CartLine previous = currentById.get(next.variantId());
+            if (previous == null || next.quantity() > previous.quantity()
+                    || next.unitPrice().compareTo(previous.unitPrice()) != 0
+                    || !Objects.equals(next.category(), previous.category())) return false;
+            if (next.quantity() < previous.quantity()) quantityRemoved = true;
+        }
+        for (CartLine previous : current.items()) {
+            if (!proposedById.containsKey(previous.variantId())) quantityRemoved = true;
+        }
+        return quantityRemoved;
+    }
+
+    private List<com.emeralds.mandatelens.agentpulse.api.MerchantOperationRequests.ChangedItem> removedItems(
+            Cart current, Cart proposed) {
+        Map<String, Integer> remaining = new HashMap<>();
+        proposed.items().forEach(item -> remaining.put(item.variantId(), item.quantity()));
+        return current.items().stream().map(previous -> {
+            int quantityLeft = remaining.getOrDefault(previous.variantId(), 0);
+            int removedQuantity = previous.quantity() - quantityLeft;
+            return removedQuantity > 0
+                    ? new com.emeralds.mandatelens.agentpulse.api.MerchantOperationRequests.ChangedItem(
+                    previous.variantId(), -removedQuantity)
+                    : null;
+        }).filter(java.util.Objects::nonNull).toList();
     }
 
     private Map<String, Object> orderBody(Cart cart, StoreSyncOrderRepository.CartDetails details) {

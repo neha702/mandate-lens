@@ -35,12 +35,13 @@ public class GuardDecisionRecorder {
                        List<GuardDecisionResponse.RuleResult> ruleResults,
                        List<RuleFinding> findings,
                        String policyVersion, Instant evaluatedAt, String contextFingerprint,
-                       MerchantOperationRequests.Check request) {
+                       MerchantOperationRequests.Check request, String authorizationHash) {
         decisions.save(decisionId, journeyId, mandateId, action, operationId, decision,
                 reasons, Map.of("request", request, "ruleResults", ruleResults,
                         "findings", findings, "policyVersion", policyVersion == null ? "unknown" : policyVersion,
                         "evaluatedAt", evaluatedAt == null ? Instant.now() : evaluatedAt,
-                        "contextFingerprint", contextFingerprint == null ? "" : contextFingerprint));
+                        "contextFingerprint", contextFingerprint == null ? "" : contextFingerprint,
+                        "authorizationHash", authorizationHash));
         operations.attachGuardDecision(operationId, decisionId, decision.name());
         events.save(new PurchaseEvent("evt-guard-" + operationId, journeyId, Instant.now(),
                 "CART_ACTION_CHECKED", "AGENT_GUARD", request.proposedCart().total(),

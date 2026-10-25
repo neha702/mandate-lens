@@ -1,14 +1,13 @@
 # Mandate Lens
 
-Mandate Lens is the Spring Boot service under `src/server`. It exposes a merchant-facing operation check/result API that calls the configured AgentGuard HTTP service and records decisions and merchant outcomes in PostgreSQL. The older `/api/journeys/{id}/guard-check` endpoint remains a local demo checker. The local Store Sync simulator is still a separate path and is not yet wired through the new merchant-facing API. The optional React storefront lives under `demo/storefront` and is for presentations only.
+Mandate Lens is the Spring Boot service under `src/server`. It exposes a merchant-facing operation check/result API that calls the configured AgentGuard service and records decisions and merchant outcomes in PostgreSQL. The local Store Sync simulator uses that same orchestration for cart creation, cart updates, removals, and checkout. The optional React storefront lives under `storefront` and is for presentations only.
 
 ## Project layout
 
 - `src/server/` — Spring Boot / Java 17 API and service modules.
-- `demo/storefront/` — optional React shop used only to demonstrate shopping; it is not a Mandate Lens service.
-- `docs/mandatelens_class_diagram.puml` — PlantUML class diagram for the entry flow and module ownership.
-- `AgentPulse_AgentGuard_Handoff.md` — proposed ownership split and draft interface for the teams to confirm.
-- `AgentPulse_Merchant_Integration_Design.md` — current merchant-facing check/result design and sequence diagrams.
+- `storefront/` — optional React shop used for presentations; it is not a Mandate Lens service.
+- `docs/hackathon-design.md` — current as-built hackathon flow, AP2-style envelope, APIs, schema, and limitations.
+- `docs/mandatelens_class_diagram.puml` — PlantUML source for the core operation and journey-read flow.
 - `AgentPulse_Hackathon_Starter_Guide.docx` — project and demo guide.
 
 Source layout:
@@ -21,13 +20,11 @@ src/
     agentguard/                       # separate Guard client and contract models
     mandate/                          # shared trust data used by both modules
     merchant/                         # catalog, cart, Store Sync, PayPal adapter
-    demo/legacyguard/                 # local budget-check demo, separate from AgentGuard client
   server/src/main/resources/          # Spring config and database migrations
-demo/
-  storefront/                         # optional shopper-facing demo UI, outside the services
+storefront/                            # optional shopper-facing UI, outside the services
 ```
 
-The `src/` directory contains the Spring Boot services. AgentPulse owns the entry API, pending operations, and journey history. The separate AgentGuard area owns only its client and request/response contract here; the policy engine itself is owned by the other teammate/service. `demo/storefront/` is an optional sample shop for presentations; it is not part of the service architecture.
+The `src/` directory contains the Spring Boot application. AgentPulse owns the merchant operation API, pending operations, and journey history. The AgentGuard area contains the HTTP contract adapter plus local deterministic and sandbox-test implementations; the separately deployed policy engine is outside this application. `storefront/` is an optional sample shop for presentations; it is not part of the service architecture.
 
 ```mermaid
 flowchart TD
@@ -45,7 +42,9 @@ flowchart TD
     Mandate --> DB
 ```
 
-The PlantUML class diagram with the entry flow and class responsibilities is in `docs/mandatelens_class_diagram.puml`. The older local budget-check demo remains under `src/server/src/main/java/com/emeralds/mandatelens/demo/legacyguard`.
+The current hackathon flow and data design is documented in [docs/hackathon-design.md](docs/hackathon-design.md). The PlantUML diagram covers the core operation and journey-read paths; the AP2 intake and Store Sync simulator flow are detailed in the design document.
+
+![Mandate Lens hackathon end-to-end flow](docs/hackathon-flow.svg)
 
 ## Run the backend
 
@@ -66,7 +65,7 @@ The API runs at `http://localhost:8080`.
 Open a second terminal:
 
 ```powershell
-cd demo/storefront
+cd storefront
 npm install
 $env:VITE_API_URL = "http://localhost:8080"
 npm run dev
@@ -94,21 +93,15 @@ Read the seeded purchase journey:
 curl.exe http://localhost:8080/api/journeys/demo-shoes-001
 ```
 
-Run the draft AgentGuard check:
-
-```powershell
-curl.exe -X POST http://localhost:8080/api/journeys/demo-shoes-001/guard-check `
-  -H "Content-Type: application/json" `
-  -d '{"journeyId":"demo-shoes-001","shopperLimit":{"amount":200.00,"currency":"USD","source":"simulated_demo"}}'
-```
-
-The local demo checker returns `BLOCK` for the seeded $209 total and cites `evt_102`. Change the limit to `$220` to see `ALLOW`. This endpoint uses sample logic and is separate from the merchant-facing Guard integration.
+Guard decisions use the merchant-facing operation API described below. It evaluates the proposed cart using the configured AgentGuard integration and the journey's stored simulated mandate.
 
 ### Merchant-facing AgentPulse check and result API
 
 `POST /api/v1/merchant-operations/check` asks AgentGuard to evaluate an add, update, or checkout using the proposed whole cart. It returns an `operationId` and `ALLOW` or `BLOCK`. After the merchant attempts the action, it calls `POST /api/v1/merchant-operations/{operationId}/result` with a stable `eventId` and the actual result. For item removals, which do not need a Guard check, the merchant can create an operation ID and send the result directly to the same result endpoint.
 
 This API needs an active mandate linked to the journey and a reachable AgentGuard service configured through `agentguard.base-url`. The bundled demo mandate belongs to journey `demo-shoes-001` and merchant `STRIDEHUB`. The current AgentGuard HTTP adapter only permits a loopback URL while the teams agree on authentication.
+
+The hackathon demo accepts one simulated AP2-style authorization envelope at `POST /api/v1/authorizations`. Mandate Lens stores the envelope in the mandate JSONB evidence field and registers its normalized constraints plus an envelope hash with AgentGuard. Each later decision is linked to that authorization hash. The demo does not receive or cryptographically verify a real AP2 mandate or payment credential. See [docs/hackathon-design.md](docs/hackathon-design.md) for the envelope shape and schema impact.
 
 `GET /api/v1/journeys/{journeyId}?merchantId={merchantId}` returns the saved journey status, operation statuses, Guard decisions and reasons, and ordered event timeline. For example, the seeded demo journey can be read with `GET /api/v1/journeys/demo-shoes-001?merchantId=STRIDEHUB`. The merchant ID match is a local demo ownership check; use authenticated merchant identity before exposing this endpoint outside localhost.
 
@@ -125,7 +118,7 @@ curl.exe -X POST http://localhost:8080/api/journeys/demo-shoes-001/events `
 ## Current integration boundaries
 
 - The shop gets product data from the backend's Store Sync product endpoint.
-- AgentPulse currently uses seeded demo events. The React cart is not yet connected to the journey event API.
-- The legacy journey check uses a local budget demo. The new merchant-facing operation API calls the configured AgentGuard HTTP client; the other team's policy service must be running for it to return a decision.
-- The `storesync-simulator` path can call PayPal Orders v2 Sandbox when configured. It is not yet connected to the new operation check/result API.
+- AgentPulse includes seeded demo events. The React storefront is not yet connected to the merchant operation or journey event APIs.
+- The default merchant operation API calls the configured AgentGuard HTTP client. The other team's policy service must be running for external Guard decisions; `agentguard-deterministic` provides a local policy demo, and `storesync-sandbox-test` provides a permissive stub for protocol testing.
+- The `storesync-simulator` path uses the same operation check/result orchestration for cart create, cart replace, removals, and checkout, then can call PayPal Orders v2 Sandbox when configured.
 - Journey events, mandates, catalog products, carts, cart items, PayPal order/payment references and statuses, and Store Sync adapter state are persisted in PostgreSQL.

@@ -15,7 +15,7 @@ import java.net.URI;
 
 /** Contract adapter. Calls are loopback-only until AgentGuard authentication is specified. */
 @Component
-@Profile("!agentguard-deterministic")
+@Profile("!agentguard-deterministic & !storesync-sandbox-test")
 public class HttpAgentGuardClient implements AgentGuardClient {
     private final String baseUrl;
     private final RestClient client;

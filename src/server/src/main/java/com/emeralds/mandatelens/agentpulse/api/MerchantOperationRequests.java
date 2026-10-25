@@ -41,5 +41,12 @@ public final class MerchantOperationRequests {
             @NotNull @Valid ResultDetails details) { }
 
     public record ResultDetails(BigDecimal total, String currency, String failureCode,
-                                String message, String paypalOrderId, String paypalCaptureId) { }
+                                String message, String paypalOrderId, String paypalCaptureId,
+                                List<ChangedItem> changedItems) {
+        public ResultDetails {
+            changedItems = changedItems == null ? List.of() : List.copyOf(changedItems);
+        }
+    }
+
+    public record ChangedItem(String productId, int quantityDelta) { }
 }

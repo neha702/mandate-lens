@@ -42,14 +42,39 @@ public class CartService {
     /** Creates a cart after resolving every requested variant against the catalog. */
     @Transactional
     public Cart create(List<CartItemRequest> items) throws IOException {
-        Cart cart = buildCart(newCartId(), items);
+        String cartId = newCartId();
+        Cart cart = previewCreate(cartId, cartId, items);
+        commitCreate(cart);
+        return cart;
+    }
+
+    /** Resolves a new cart without persisting it, so policy can be checked first. */
+    public Cart previewCreate(List<CartItemRequest> items) throws IOException {
+        String cartId = newCartId();
+        return previewCreate(cartId, cartId, items);
+    }
+
+    /** Resolves a new cart and binds it to the caller's trust journey. */
+    public Cart previewCreate(String journeyId, List<CartItemRequest> items) throws IOException {
+        return previewCreate(newCartId(), journeyId, items);
+    }
+
+    private Cart previewCreate(String cartId, String journeyId, List<CartItemRequest> items) throws IOException {
+        if (journeyId == null || journeyId.isBlank()) throw new IllegalArgumentException("journeyId is required");
+        return buildCart(cartId, journeyId, items);
+    }
+
+    /** Persists a previously resolved cart after merchant-side policy checks pass. */
+    @Transactional
+    public void commitCreate(Cart cart) {
         jdbc.update("""
                 INSERT INTO merchant.carts (cart_id, mandatelens_journey_id, source_channel, currency, subtotal, total)
                 VALUES (?, ?, 'STORESYNC', ?, ?, ?)
-                """, cart.id(), cart.id(), cart.currency(), cart.subtotal(), cart.subtotal());
+                """, cart.id(), cart.journeyId(), cart.currency(), cart.subtotal(), cart.subtotal());
+        jdbc.update("UPDATE trust.trust_journeys SET cart_id = ?, updated_at = NOW() WHERE journey_id = ?",
+                cart.id(), cart.journeyId());
         saveLines(cart);
         recordCartEvent(cart, "CART_CREATED");
-        return cart;
     }
 
     /** Replaces all lines, re-resolves catalog values, and recalculates the subtotal. */
@@ -65,7 +90,13 @@ public class CartService {
         if (!exists(cartId)) {
             throw new NoSuchElementException("Cart not found: " + cartId);
         }
-        return buildCart(cartId, items);
+        if (items == null || items.isEmpty()) {
+            Cart existing = get(cartId);
+            return new Cart(cartId, existing.journeyId(), List.of(), BigDecimal.ZERO,
+                    existing.currency(), List.of());
+        }
+        Cart existing = get(cartId);
+        return buildCart(cartId, existing.journeyId(), items);
     }
 
     /** Persists a previously resolved replacement after merchant-side policy checks pass. */
@@ -83,6 +114,12 @@ public class CartService {
 
     /** Loads a cart from PostgreSQL, or throws when its ID is unknown. */
     public Cart get(String cartId) {
+        if (!exists(cartId)) throw new NoSuchElementException("Cart not found: " + cartId);
+        CartIdentity identity = jdbc.queryForObject("""
+                SELECT mandatelens_journey_id, currency FROM merchant.carts WHERE cart_id = ?
+                """, (rs, row) -> new CartIdentity(rs.getString("mandatelens_journey_id"),
+                rs.getString("currency").trim()), cartId);
+        String currency = identity.currency();
         List<CartLine> lines = jdbc.query("""
                 SELECT c.currency, i.product_id, i.quantity,
                        i.product_name_snapshot, i.category_snapshot, i.unit_price,
@@ -95,16 +132,16 @@ public class CartService {
                 rs.getBigDecimal("unit_price"), rs.getString("currency").trim(),
                 rs.getBoolean("is_active") && rs.getInt("available_quantity") > 0 ? "IN_STOCK" : "OUT_OF_STOCK",
                 rs.getInt("available_quantity")), cartId);
-        if (lines.isEmpty()) throw new NoSuchElementException("Cart not found: " + cartId);
         BigDecimal subtotal = lines.stream().map(line -> line.unitPrice().multiply(BigDecimal.valueOf(line.quantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         List<String> issues = lines.stream().filter(line -> !"IN_STOCK".equals(line.availability())
                 || line.quantity() > line.availableQuantity()).map(CartLine::variantId).toList();
-        return new Cart(cartId, lines, subtotal, lines.get(0).currency(), issues);
+        return new Cart(cartId, identity.journeyId() == null ? cartId : identity.journeyId(),
+                lines, subtotal, currency, issues);
     }
 
     /** Builds catalog-priced lines and records out-of-stock or insufficient-quantity variants. */
-    private Cart buildCart(String cartId, List<CartItemRequest> requestedItems) throws IOException {
+    private Cart buildCart(String cartId, String journeyId, List<CartItemRequest> requestedItems) throws IOException {
         if (requestedItems == null || requestedItems.isEmpty()) {
             throw new IllegalArgumentException("A cart must contain at least one item");
         }
@@ -143,10 +180,10 @@ public class CartService {
             }
         }
 
-        return new Cart(cartId, lines, subtotal, currency, availabilityIssues);
+        return new Cart(cartId, journeyId, lines, subtotal, currency, availabilityIssues);
     }
 
-    /** Records a minimal lifecycle event, correlating the journey by cart ID. */
+    /** Records a minimal lifecycle event against the journey that owns the cart. */
     private void recordCartEvent(Cart cart, String type) {
         String itemSummary = cart.items().stream()
                 .map(item -> item.variantId() + "x" + item.quantity())
@@ -155,7 +192,7 @@ public class CartService {
                 + String.join(",", cart.availabilityIssues());
         eventStore.save(new PurchaseEvent(
                 "EVENT-" + UUID.randomUUID().toString(),
-                cart.id(),
+                cart.journeyId(),
                 Instant.now(),
                 type,
                 "MERCHANT_API",
@@ -172,6 +209,8 @@ public class CartService {
         return Boolean.TRUE.equals(jdbc.queryForObject(
                 "SELECT EXISTS (SELECT 1 FROM merchant.carts WHERE cart_id = ?)", Boolean.class, cartId));
     }
+
+    private record CartIdentity(String journeyId, String currency) { }
 
     private void saveLines(Cart cart) {
         for (CartLine item : cart.items()) {

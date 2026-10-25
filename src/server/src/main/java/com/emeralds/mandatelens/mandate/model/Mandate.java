@@ -10,16 +10,21 @@ public record Mandate(
         String journeyId,
         String userId,
         String merchantId,
+        String authorizationReference,
         BigDecimal maxAmount,
         String currency,
         List<String> allowedCategories,
+        List<String> allowedProductIds,
         String shippingCountry,
         Instant createdAt,
         Instant expiresAt,
-        Source source
+        Source source,
+        Ap2AuthorizationEnvelope authorizationEvidence,
+        Instant agentGuardRegisteredAt
 ) {
     public Mandate {
         allowedCategories = allowedCategories == null ? List.of() : List.copyOf(allowedCategories);
+        allowedProductIds = allowedProductIds == null ? List.of() : List.copyOf(allowedProductIds);
     }
 
     public enum Source {

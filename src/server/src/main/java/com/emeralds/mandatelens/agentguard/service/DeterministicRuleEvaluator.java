@@ -110,6 +110,12 @@ public class DeterministicRuleEvaluator implements RuleEvaluator {
                         values("productId", item.productId(), "category", item.category(),
                                 "allowedCategories", mandate.allowedCategories())));
             }
+            if (!mandate.allowedProductIds().isEmpty() && mandate.allowedProductIds().stream()
+                    .noneMatch(productId -> productId.equalsIgnoreCase(item.productId().trim()))) {
+                findings.add(finding("CART_PRODUCT_AUTHORIZED", "CART", FAIL, BLOCK,
+                        "PRODUCT_NOT_AUTHORIZED", "A cart item is outside the authorized product set.",
+                        values("productId", item.productId(), "allowedProductIds", mandate.allowedProductIds())));
+            }
         }
 
         if (mandate.shippingCountry() == null || mandate.shippingCountry().isBlank()) {

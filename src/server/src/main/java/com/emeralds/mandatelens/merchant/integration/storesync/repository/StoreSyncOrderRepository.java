@@ -39,6 +39,14 @@ public class StoreSyncOrderRepository {
                 """, order.orderId(), order.orderId(), cartId);
         save(cartId, "order_state", order);
     }
+    @Transactional
+    public void cancelPendingOrder(String cartId, String orderId) {
+        jdbc.update("UPDATE merchant.orders SET status = 'CANCELLED', updated_at = NOW() " +
+                "WHERE cart_id = ? AND order_id = ? AND status IN ('PENDING', 'APPROVED')", cartId, orderId);
+        jdbc.update("UPDATE merchant.payments SET status = 'FAILED', updated_at = NOW() " +
+                "WHERE provider_order_id = ? AND status IN ('CREATED', 'PENDING')", orderId);
+        save(cartId, "order_state", null);
+    }
     public Optional<CartDetails> findCartDetails(String cartId) { return find(cartId, "cart_details", CartDetails.class); }
     public void saveCartDetails(String cartId, CartDetails details) { save(cartId, "cart_details", details); }
     public Optional<GuardContext> findGuardContext(String cartId) { return find(cartId, "guard_context", GuardContext.class); }

@@ -47,8 +47,32 @@ public class DeterministicAgentGuardService implements AgentGuardClient {
 
     @Override
     public RegisterMandateResponse registerMandate(RegisterMandateRequest request) {
-        throw new UnsupportedOperationException(
-                "The local engine cannot verify AP2 authorization evidence or register production mandates.");
+        if (request == null || request.mandateId() == null || request.journeyId() == null
+                || request.authorization() == null
+                || !"SIMULATED".equals(request.authorization().verificationStatus())) {
+            throw new IllegalArgumentException("The deterministic demo engine only accepts simulated mandates.");
+        }
+        Mandate mandate = mandates.findByJourneyId(request.journeyId())
+                .filter(found -> request.mandateId().equals(found.mandateId()))
+                .orElseThrow(() -> new IllegalArgumentException("Mandate is not stored for this journey."));
+        if (mandate.source() != Mandate.Source.SIMULATED_AP2) {
+            throw new IllegalArgumentException("The local engine only registers simulated AP2 mandates.");
+        }
+        var authorization = request.authorization();
+        var constraints = request.constraints();
+        if (authorization.authorizationReference() == null
+                || !mandate.authorizationReference().equals(authorization.authorizationReference())
+                || mandate.authorizationEvidence() == null
+                || !mandate.authorizationEvidence().protocolVersion().equals(authorization.protocolVersion())
+                || constraints == null || constraints.maxAmount() == null
+                || mandate.maxAmount().compareTo(constraints.maxAmount()) != 0
+                || !mandate.currency().equalsIgnoreCase(constraints.currency())
+                || !mandate.allowedCategories().equals(constraints.allowedCategories())
+                || !mandate.allowedProductIds().equals(constraints.allowedProductIds())
+                || !java.util.Objects.equals(mandate.shippingCountry(), constraints.shippingCountry())) {
+            throw new IllegalArgumentException("AgentGuard registration fields do not match the stored authorization.");
+        }
+        return new RegisterMandateResponse(request.mandateId(), "REGISTERED");
     }
 
     @Override

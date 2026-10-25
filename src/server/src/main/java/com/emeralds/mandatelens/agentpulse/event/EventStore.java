@@ -37,6 +37,7 @@ public class EventStore {
         details.put("sourceLabel", event.source());
         if (event.amount() != null) details.put("amount", event.amount());
         if (event.currency() != null) details.put("currency", event.currency());
+        details.putAll(event.structuredDetails());
         String json = writeJson(details);
         try {
             jdbc.update("""
@@ -63,9 +64,12 @@ public class EventStore {
                     BigDecimal amount = decimal(details.get("amount"));
                     String currency = string(details.get("currency"));
                     String message = string(details.get("message"));
+                    Map<String, Object> structured = new LinkedHashMap<>(details);
+                    structured.keySet().removeAll(List.of("message", "sourceLabel", "amount", "currency"));
                     return new PurchaseEvent(rs.getString("event_id"), rs.getString("journey_id"),
                             rs.getTimestamp("occurred_at").toInstant(), rs.getString("event_type"),
-                            string(details.getOrDefault("sourceLabel", rs.getString("source"))), amount, currency, message);
+                            string(details.getOrDefault("sourceLabel", rs.getString("source"))), amount, currency,
+                            message, structured);
                 }, journeyId).stream().sorted(Comparator.comparing(PurchaseEvent::occurredAt)
                 .thenComparing(PurchaseEvent::id)).toList();
     }
