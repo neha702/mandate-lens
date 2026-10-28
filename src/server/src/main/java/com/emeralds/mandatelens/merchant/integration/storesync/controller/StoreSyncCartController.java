@@ -22,6 +22,10 @@ import java.util.NoSuchElementException;
  */
 @RestController
 @Profile("storesync-simulator")
+@CrossOrigin(origins = {
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+})
 @RequestMapping("/merchant-cart")
 public class StoreSyncCartController {
     private final StoreSyncCartService cartService;

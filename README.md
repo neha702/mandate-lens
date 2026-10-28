@@ -46,23 +46,27 @@ flowchart TD
 
 The current hackathon overview is in [docs/mandatelens_design.md](docs/mandatelens_design.md). See [docs/database-schemas.md](docs/database-schemas.md) for the full PostgreSQL schema reference and [docs/api-contracts.md](docs/api-contracts.md) for the mandate and HTTP contracts. The PlantUML diagram covers the core operation and journey-read paths; the AP2 intake and Store Sync simulator flow are detailed in the design document.
 
-For local end-to-end checks, including the merchant operation API and optional PayPal Sandbox checkout, see [docs/local-e2e.md](docs/local-e2e.md).
+For detailed Windows PowerShell instructions to start the backend, merchant UI, MCP server, configure Cursor, and keep PayPal Sandbox disabled, see [docs/windows-local-setup.md](docs/windows-local-setup.md). For API-level end-to-end checks and optional PayPal Sandbox checkout, see [docs/local-e2e.md](docs/local-e2e.md).
+
+For a plain-language bullet summary of the current demo features and what is still a prototype, see [docs/project-changes-summary.md](docs/project-changes-summary.md).
 
 ![Mandate Lens hackathon end-to-end flow](docs/hackathon-flow.svg)
 
 ## Run the backend
 
-Use Java 17+, PostgreSQL, and the included Maven wrapper. Create a database named `mandatelens`; Flyway creates the `merchant` and `trust` schemas and tables from migrations under `src/server/src/main/resources/db/migration`. The bundled product CSV seeds an empty catalog once; PostgreSQL is the catalog source after seeding. Store Sync adapter fields not represented in the schema are kept in `merchant.store_sync_cart_state`.
+Use Java 17+, PostgreSQL, and the included Maven wrapper. Create a database named `mandatelens`; Flyway creates the `merchant` and `trust` schemas and tables from migrations under `src/server/src/main/resources/db/migration`. Put local database settings in the ignored repository-root `.env` file; `run-server.ps1` loads the values into the Spring Boot process (Spring Boot does not read this file automatically in this setup). The bundled product CSV seeds an empty catalog once; PostgreSQL is the catalog source after seeding. Store Sync adapter fields not represented in the schema are kept in `merchant.store_sync_cart_state`.
 
-Set `DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD` for your PostgreSQL instance. Defaults connect to `jdbc:postgresql://localhost:5432/mandatelens` as `postgres` with password `postgres`.
+The local `.env` already contains the PostgreSQL URL, username, and your local password. Update those values there if your PostgreSQL setup changes. A safe-to-share template is in `.env.example`.
 
 From the project root in PowerShell:
 
 ```powershell
-.\mvnw.cmd -pl src/server spring-boot:run
+.\run-server.ps1
 ```
 
-On macOS/Linux, configure the local database and Spring profile in `local-env.sh`, then run `make run-server` from the project root. The target sources that file and starts the backend with the Maven wrapper.
+This script loads the root `.env` values into the backend process, then starts Spring Boot. Use it after editing `.env` so the database and demo settings are passed consistently.
+
+On macOS/Linux, put local database and Spring profile settings in the ignored `.env` file, then run `make run-server` from the project root. The target loads that file and starts the backend with the Maven wrapper.
 
 The API runs at `http://localhost:8080`.
 
@@ -80,12 +84,15 @@ On Windows PowerShell, open a second terminal:
 
 ```powershell
 cd storefront
-npm install
-$env:VITE_API_URL = "http://localhost:8080"
+npm ci
 npm run dev
 ```
 
-Open the local Vite URL shown in the terminal. The shop loads its product list from `GET /api/products`.
+Run `npm ci` only once, or again after dependencies change.
+
+Open the local Vite URL shown in the terminal. The PacePoint merchant UI loads its products from `GET /api/products` and uses the Store Sync merchant cart endpoints to create/read/update carts and complete PayPal Sandbox checkout. Vite proxies both `/api` and `/merchant-cart` to the local backend, so do not set `VITE_API_URL` for local development. See [docs/local-e2e.md](docs/local-e2e.md) for Sandbox setup.
+
+The same merchant UI has a Pulse dashboard page at `http://localhost:5173/pulse`. It lists journeys for the selected merchant (defaults to `STRIDEHUB`) and displays the selected journey's saved activity timeline and Guard decisions. It reads `GET /api/v1/journeys?merchantId=...` and `GET /api/v1/journeys/{journeyId}?merchantId=...`. For the no-Sandbox demo, leave `PAYPAL_SANDBOX_ENABLED=false`; checkout is simulated locally until the Sandbox credentials are confirmed.
 
 ## Try the APIs
 
@@ -132,7 +139,7 @@ curl.exe -X POST http://localhost:8080/api/journeys/demo-shoes-001/events `
 ## Current integration boundaries
 
 - The shop gets product data from the backend's Store Sync product endpoint.
-- AgentPulse includes seeded demo events. The React storefront is not yet connected to the merchant operation or journey event APIs.
+- The React storefront now runs a complete local demo of the simulated AI-agent proposal, Guard check, merchant result callback, checkout check, and simulated payment callback. The journey panel reads its history from `GET /api/v1/journeys/{journeyId}?merchantId=STRIDEHUB`.
 - The default merchant operation API calls the configured AgentGuard HTTP client. The other team's policy service must be running for external Guard decisions; `agentguard-deterministic` provides a local policy demo, and `storesync-sandbox-test` provides a permissive stub for protocol testing.
 - The `storesync-simulator` path uses the same operation check/result orchestration for cart create, cart replace, removals, and checkout, then can call PayPal Orders v2 Sandbox when configured.
 - Journey events, mandates, catalog products, carts, cart items, PayPal order/payment references and statuses, and Store Sync adapter state are persisted in PostgreSQL.

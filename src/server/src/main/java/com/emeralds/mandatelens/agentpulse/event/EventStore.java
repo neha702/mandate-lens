@@ -49,7 +49,7 @@ public class EventStore {
                     (event_id, journey_id, event_type, source, outcome, details, occurred_at)
                     VALUES (?, ?, ?, ?, ?, ?::jsonb, ?)
                     """, event.id(), event.journeyId(), event.type(), normalizeSource(event.source()),
-                    normalizeOutcome(event.type()), json, Timestamp.from(event.occurredAt()));
+                    normalizeOutcome(event.type(), details), json, Timestamp.from(event.occurredAt()));
         } catch (DuplicateKeyException exception) {
             logger.warn("Journey event rejected as duplicate: eventId={} journeyId={} type={}",
                     event.id(), event.journeyId(), event.type());
@@ -85,19 +85,26 @@ public class EventStore {
     private String normalizeSource(String source) {
         if (source == null) return "SYSTEM";
         String value = source.toUpperCase();
+        if (value.contains("MANDATE_LENS")) return "MANDATE_LENS";
         if (value.contains("PAYPAL")) return "PAYPAL_WEBHOOK";
         if (value.contains("GUARD")) return "AGENT_GUARD";
         if (value.contains("MERCHANT")) return "MERCHANT";
         return "SYSTEM";
     }
 
-    private String normalizeOutcome(String type) {
+    private String normalizeOutcome(String type, Map<String, Object> details) {
         String value = type == null ? "" : type.toUpperCase();
         if (value.contains("BLOCK")) return "BLOCKED";
         if (value.contains("FAIL")) return "FAILED";
         if (value.contains("ATTEMPT")) return "ATTEMPTED";
         if (value.contains("PENDING")) return "PENDING";
-        if (value.contains("CREATED") || value.contains("CAPTURED") || value.contains("COMPLETED")) return "SUCCESS";
+        if (value.contains("SUCCEEDED") || value.endsWith("_SUCCESS")
+                || value.contains("CREATED") || value.contains("CAPTURED") || value.contains("COMPLETED")) return "SUCCESS";
+        if (value.equals("CART_ACTION_CHECKED")) {
+            String decision = string(details.get("decision"));
+            if ("BLOCK".equalsIgnoreCase(decision)) return "BLOCKED";
+            if ("ALLOW".equalsIgnoreCase(decision)) return "ALLOWED";
+        }
         return "INFO";
     }
 

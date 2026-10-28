@@ -2,3 +2,10 @@ id,name,description,category,price,currency,imageUrl,availability,availableQuant
 shoe-001,Stride Runner,Lightweight daily running shoe,RUNNING_SHOES,179,USD,https://images.unsplash.com/photo-1542291026-7eec264c27ff,IN_STOCK,10
 shoe-002,Stride Speed,Fast and responsive running shoe,RUNNING_SHOES,149,USD,https://images.unsplash.com/photo-1542291026-7eec264c27ff,IN_STOCK,10
 shoe-003,Stride Trail,Durable shoe for trail running,RUNNING_SHOES,189,USD,https://images.unsplash.com/photo-1551107696-a4b0c5a0d9a2,IN_STOCK,10
+shoe-004,Stride Tempo,Lightweight trainer for quick everyday runs,RUNNING_SHOES,129,USD,https://images.unsplash.com/photo-1460353581641-37baddab0fa2,IN_STOCK,12
+shoe-005,Stride Cloud,Soft cushioned comfort for easy miles,RUNNING_SHOES,99,USD,https://images.unsplash.com/photo-1495555961986-6d4c1ecb7be3,IN_STOCK,12
+shoe-006,Stride Pace,Dependable entry-level road running shoe,RUNNING_SHOES,79,USD,https://images.unsplash.com/photo-1600185365483-26d7a4cc7519,IN_STOCK,15
+shoe-007,Stride Sprint,Responsive shoe for speed sessions and training,RUNNING_SHOES,119,USD,https://images.unsplash.com/photo-1539185441755-769473a23570,IN_STOCK,10
+shoe-008,Stride Endurance,Extra comfort for long-distance running,RUNNING_SHOES,159,USD,https://images.unsplash.com/photo-1552346154-21d32810aba3,IN_STOCK,8
+shoe-009,Stride Flex,Flexible everyday shoe for road and gym runs,RUNNING_SHOES,89,USD,https://images.unsplash.com/photo-1542291026-7eec264c27ff,IN_STOCK,14
+shoe-010,Stride Horizon,Stable support for steady daily mileage,RUNNING_SHOES,139,USD,https://images.unsplash.com/photo-1460353581641-37baddab0fa2,IN_STOCK,9

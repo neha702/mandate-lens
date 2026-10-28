@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 /** Maps Store Sync wire requests to the merchant cart and PayPal Orders v2. */
 @Service
@@ -37,17 +40,26 @@ public class StoreSyncCartService {
     private final StoreSyncGuardService agentGuard;
     private final MandateService mandateService;
     private final String demoJourneyId;
+    private final boolean paypalSandboxEnabled;
+    private final String paypalReturnUrl;
+    private final String paypalCancelUrl;
 
     public StoreSyncCartService(CartService cartService, PayPalOrdersClient ordersClient,
                                 StoreSyncOrderRepository orderRepository,
                                 StoreSyncGuardService agentGuard, MandateService mandateService,
-                                @Value("${agentguard.demo.journey-id:demo-shoes-001}") String demoJourneyId) {
+                                @Value("${agentguard.demo.journey-id:demo-shoes-001}") String demoJourneyId,
+                                @Value("${paypal.sandbox.enabled:false}") boolean paypalSandboxEnabled,
+                                @Value("${paypal.orders.return-url:http://localhost:5173/checkout/return}") String paypalReturnUrl,
+                                @Value("${paypal.orders.cancel-url:http://localhost:5173/checkout/cancel}") String paypalCancelUrl) {
         this.cartService = cartService;
         this.ordersClient = ordersClient;
         this.orderRepository = orderRepository;
         this.agentGuard = agentGuard;
         this.mandateService = mandateService;
         this.demoJourneyId = demoJourneyId;
+        this.paypalSandboxEnabled = paypalSandboxEnabled;
+        this.paypalReturnUrl = paypalReturnUrl;
+        this.paypalCancelUrl = paypalCancelUrl;
     }
 
     public StoreSyncCartResponse create(StoreSyncCartRequest request) throws IOException {
@@ -64,8 +76,7 @@ public class StoreSyncCartService {
             orderRepository.saveCartDetails(cart.id(), details);
             orderRepository.saveGuardContext(cart.id(), guardContext);
             if (issues.isEmpty()) {
-                PayPalOrdersClient.OrderResult result = ordersClient.createOrder(cart.id(), orderBody(cart, details));
-                order = new StoreSyncOrderRepository.OrderState(result.orderId(), 0, result.approvalUrl());
+                order = createPaymentOrder(cart, details);
                 orderRepository.saveOrder(cart.id(), order);
             }
         } catch (RuntimeException exception) {
@@ -94,6 +105,10 @@ public class StoreSyncCartService {
         Cart cart = cartService.previewReplace(cartId, toCartItems(request.items()));
         StoreSyncOrderRepository.CartDetails details = cartDetails(request);
         boolean removalOnly = isRemovalOnly(currentCart, cart);
+        StoreSyncOrderRepository.OrderState existingOrder = orderRepository.findOrder(cartId).orElse(null);
+        if (!removalOnly && !cart.items().isEmpty() && existingOrder != null) {
+            ensurePaymentModeMatches(existingOrder);
+        }
         logger.info("Store Sync cart replace: cartId={} currentTotal={} proposedTotal={} currency={} itemCount={} removalOnly={}",
                 cartId, currentCart.subtotal(), cart.subtotal(), cart.currency(), cart.items().size(), removalOnly);
         String operationId;
@@ -108,24 +123,25 @@ public class StoreSyncCartService {
         String failureEventType = removalOnly ? "ITEM_REMOVAL_FAILED" : "CART_UPDATE_FAILED";
         List<com.emeralds.mandatelens.agentpulse.api.MerchantOperationRequests.ChangedItem> removedItems =
                 removalOnly ? removedItems(currentCart, cart) : List.of();
-        StoreSyncOrderRepository.OrderState order;
+        StoreSyncOrderRepository.OrderState order = existingOrder;
         List<StoreSyncCartResponse.ValidationIssue> issues = inventoryIssues(cart);
         try {
             cartService.commitReplace(cart);
             orderRepository.saveCartDetails(cart.id(), details);
-            order = orderRepository.findOrder(cartId).orElse(null);
             if (removalOnly && cart.items().isEmpty()) {
                 if (order != null) orderRepository.cancelPendingOrder(cartId, order.orderId());
                 order = null;
             } else if (issues.isEmpty()) {
                 if (order == null) {
-                    PayPalOrdersClient.OrderResult result = ordersClient.createOrder(cart.id(), orderBody(cart, details));
-                    order = new StoreSyncOrderRepository.OrderState(result.orderId(), 0, result.approvalUrl());
+                    order = createPaymentOrder(cart, details);
                 } else {
                     int revision = order.revision() + 1;
-                    ordersClient.updateOrder(cartId, revision, order.orderId(), amount(cart), paypalItems(cart),
-                            shippingDetails(details), previousDetails != null && previousDetails.shippingAddress() != null);
-                    order = new StoreSyncOrderRepository.OrderState(order.orderId(), revision, order.approvalUrl());
+                    if (!isDemoOrder(order)) {
+                        ordersClient.updateOrder(cartId, revision, order.orderId(), amount(cart), paypalItems(cart),
+                                shippingDetails(details), previousDetails != null && previousDetails.shippingAddress() != null);
+                    }
+                    order = new StoreSyncOrderRepository.OrderState(order.orderId(), revision,
+                            order.approvalUrl(), order.provider());
                 }
                 orderRepository.saveOrder(cartId, order);
             }
@@ -160,14 +176,18 @@ public class StoreSyncCartService {
         if (!cart.availabilityIssues().isEmpty()) {
             return response(cart, "INCOMPLETE", orderRepository.findOrder(cartId).orElse(null), inventoryIssues(cart));
         }
-        if (request.paymentMethod() == null || request.paymentMethod().type() == null
-                || !"paypal".equalsIgnoreCase(request.paymentMethod().type())) {
-            throw new IllegalArgumentException("payment_method.type must be paypal.");
+        if (request.paymentMethod() == null || request.paymentMethod().type() == null) {
+            throw new IllegalArgumentException("payment_method is required.");
         }
         StoreSyncOrderRepository.OrderState order = orderRepository.findOrder(cartId).orElse(null);
         String requestedOrderId = request.paymentMethod().token();
         if (order == null || requestedOrderId == null || !order.orderId().equals(requestedOrderId)) {
-            throw new IllegalArgumentException("payment_method.token must match this cart's PayPal order ID.");
+            throw new IllegalArgumentException("payment_method.token must match this cart's payment order ID.");
+        }
+        ensurePaymentModeMatches(order);
+        String expectedPaymentType = isDemoOrder(order) ? "demo" : "paypal";
+        if (!expectedPaymentType.equalsIgnoreCase(request.paymentMethod().type())) {
+            throw new IllegalArgumentException("payment_method.type must be " + expectedPaymentType + " for this cart.");
         }
 
         StoreSyncOrderRepository.CartDetails details = orderRepository.findCartDetails(cartId).orElse(null);
@@ -178,7 +198,9 @@ public class StoreSyncCartService {
         String operationId = agentGuard.checkCheckout(cartId, guardContext, cart, country(details));
 
         PayPalOrdersClient.CaptureResult capture;
-        try {
+        if (isDemoOrder(order)) {
+            capture = new PayPalOrdersClient.CaptureResult("COMPLETED", "DEMO-CAPTURE-" + UUID.randomUUID());
+        } else try {
             capture = ordersClient.captureOrder(cartId, order.orderId());
         } catch (RuntimeException exception) {
             logger.error("Store Sync PayPal capture failed: cartId={} total={} currency={} errorType={}",
@@ -199,7 +221,8 @@ public class StoreSyncCartService {
         orderRepository.saveCompletedCart(cartId, response, capture.captureId());
         agentGuard.reportResult(operationId, guardContext, cartId, "PAYMENT_SUCCEEDED", "SUCCESS",
                 cart.subtotal(), cart.currency(), order.orderId(), null, null,
-                order.orderId(), capture.captureId(), List.of());
+                isDemoOrder(order) ? null : order.orderId(),
+                isDemoOrder(order) ? null : capture.captureId(), List.of());
         logger.info("Store Sync checkout completed: cartId={} total={} currency={}",
                 cartId, cart.subtotal(), cart.currency());
         return response;
@@ -263,7 +286,45 @@ public class StoreSyncCartService {
         purchaseUnit.put("items", paypalItems(cart));
         Map<String, Object> shipping = shippingDetails(details);
         if (shipping != null) purchaseUnit.put("shipping", shipping);
-        return Map.of("intent", "CAPTURE", "purchase_units", List.of(purchaseUnit));
+        Map<String, Object> experienceContext = Map.of(
+                "return_url", appendCartId(paypalReturnUrl, cart.id()),
+                "cancel_url", appendCartId(paypalCancelUrl, cart.id()),
+                "shipping_preference", "SET_PROVIDED_ADDRESS",
+                "user_action", "PAY_NOW");
+        Map<String, Object> paymentSource = Map.of("paypal", Map.of("experience_context", experienceContext));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("intent", "CAPTURE");
+        body.put("payment_source", paymentSource);
+        body.put("purchase_units", List.of(purchaseUnit));
+        return body;
+    }
+
+    private StoreSyncOrderRepository.OrderState createPaymentOrder(
+            Cart cart, StoreSyncOrderRepository.CartDetails details) {
+        if (!paypalSandboxEnabled) {
+            String demoOrderId = "DEMO-ORDER-" + UUID.randomUUID();
+            logger.info("Simulated payment order created: cartId={}", cart.id());
+            return new StoreSyncOrderRepository.OrderState(demoOrderId, 0, null, "DEMO");
+        }
+        PayPalOrdersClient.OrderResult result = ordersClient.createOrder(cart.id(), orderBody(cart, details));
+        return new StoreSyncOrderRepository.OrderState(result.orderId(), 0, result.approvalUrl(), "PAYPAL");
+    }
+
+    private boolean isDemoOrder(StoreSyncOrderRepository.OrderState order) {
+        return "DEMO".equalsIgnoreCase(order.provider())
+                || (order.provider() == null && order.orderId().startsWith("DEMO-"));
+    }
+
+    private void ensurePaymentModeMatches(StoreSyncOrderRepository.OrderState order) {
+        boolean orderUsesSandbox = !isDemoOrder(order);
+        if (orderUsesSandbox != paypalSandboxEnabled) {
+            throw new IllegalStateException("This cart was created in a different payment mode. Clear the cart and start a new one after changing PAYPAL_SANDBOX_ENABLED.");
+        }
+    }
+
+    private String appendCartId(String baseUrl, String cartId) {
+        return baseUrl + (baseUrl.contains("?") ? "&" : "?")
+                + "cartId=" + URLEncoder.encode(cartId, StandardCharsets.UTF_8);
     }
 
     private List<Map<String, Object>> paypalItems(Cart cart) {
@@ -329,7 +390,8 @@ public class StoreSyncCartService {
         StoreSyncCartResponse.Money total = new StoreSyncCartResponse.Money(cart.currency(), decimal(cart.subtotal()));
         StoreSyncCartResponse.Totals totals = new StoreSyncCartResponse.Totals(total, total, zero(cart.currency()), zero(cart.currency()));
         StoreSyncCartResponse.PaymentMethod paymentMethod = order == null ? null
-                : new StoreSyncCartResponse.PaymentMethod("paypal", order.orderId(), null, order.approvalUrl());
+                : new StoreSyncCartResponse.PaymentMethod(isDemoOrder(order) ? "demo" : "paypal",
+                        order.orderId(), null, order.approvalUrl());
         String validationStatus = issues.isEmpty() ? "VALID" : "INVALID";
         StoreSyncOrderRepository.CartDetails details = orderRepository.findCartDetails(cart.id()).orElse(null);
         return new StoreSyncCartResponse(cart.id(), status, validationStatus, issues, items, totals,
