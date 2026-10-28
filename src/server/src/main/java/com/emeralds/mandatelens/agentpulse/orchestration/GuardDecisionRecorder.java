@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -43,10 +44,22 @@ public class GuardDecisionRecorder {
                         "contextFingerprint", contextFingerprint == null ? "" : contextFingerprint,
                         "authorizationHash", authorizationHash));
         operations.attachGuardDecision(operationId, decisionId, decision.name());
+        Map<String, Object> eventDetails = new LinkedHashMap<>();
+        eventDetails.put("operationId", operationId);
+        eventDetails.put("decisionId", decisionId);
+        eventDetails.put("mandateId", mandateId);
+        eventDetails.put("action", action);
+        eventDetails.put("decision", decision.name());
+        eventDetails.put("reasons", reasons);
+        eventDetails.put("ruleResults", ruleResults);
+        eventDetails.put("findings", findings);
+        eventDetails.put("policyVersion", policyVersion == null ? "unknown" : policyVersion);
+        eventDetails.put("evaluatedAt", evaluatedAt == null ? Instant.now() : evaluatedAt);
+        eventDetails.put("contextFingerprint", contextFingerprint == null ? "" : contextFingerprint);
+        eventDetails.put("authorizationHash", authorizationHash);
+        eventDetails.put("request", request);
         events.save(new PurchaseEvent("evt-guard-" + operationId, journeyId, Instant.now(),
                 "CART_ACTION_CHECKED", "AGENT_GUARD", request.proposedCart().total(),
-                request.proposedCart().currency(), "operationId=" + operationId + ";decision="
-                + decision + ";reasons=" + reasons + ";ruleResults=" + ruleResults
-                + ";findingCount=" + findings.size()));
+                request.proposedCart().currency(), "AgentGuard evaluated the proposed cart.", eventDetails));
     }
 }

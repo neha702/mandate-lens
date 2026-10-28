@@ -30,6 +30,16 @@ public class JourneyQueryService {
                 operations, decisions, events);
     }
 
+    public List<JourneyReadRepository.JourneyListItem> listJourneys(String merchantId, String status, String search) {
+        String normalizedStatus = status == null || status.isBlank() ? null : status.trim().toUpperCase();
+        if (normalizedStatus != null && !List.of("ACTIVE", "COMPLETED", "BLOCKED", "FAILED", "ABANDONED", "EXPIRED")
+                .contains(normalizedStatus)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported journey status.");
+        }
+        String normalizedSearch = search == null || search.isBlank() ? null : search.trim();
+        return repository.findJourneys(merchantId, normalizedStatus, normalizedSearch, 100);
+    }
+
     public record JourneyDetail(String journeyId, String merchantId, String cartId, String status,
                                 String latestEventType, String latestOutcome, Instant startedAt,
                                 Instant lastEventAt, Instant endedAt,
