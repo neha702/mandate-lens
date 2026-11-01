@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Navbar from "./components/Navbar";
 import CartDrawer from "./components/CartDrawer";
 import Store from "./pages/Store";
-import PulseDashboard from "./pages/PulseDashboard";
 import {
   checkoutCart,
   createCart,
@@ -295,10 +294,4 @@ function StorefrontApp() {
   );
 }
 
-function App() {
-  return window.location.pathname.replace(/\/$/, "") === "/pulse"
-    ? <PulseDashboard />
-    : <StorefrontApp />;
-}
-
-export default App;
+export default StorefrontApp;

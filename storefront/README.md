@@ -1,6 +1,6 @@
-# PacePoint merchant UI and AgentPulse dashboard
+# PacePoint merchant shop UI
 
-This React application contains the PacePoint demo shop and merchant-facing Pulse journey dashboard. For complete Windows PowerShell steps, including `.env`, the backend, MCP, and Cursor setup, see [../docs/windows-local-setup.md](../docs/windows-local-setup.md).
+This React application contains the PacePoint demo shop only. The Pulse journey dashboard is a separate Mandate Lens UI in `../mandate-lens-ui`. For complete Windows PowerShell steps, including `.env`, both APIs, both UIs, MCP, and Cursor setup, see [../docs/windows-local-setup.md](../docs/windows-local-setup.md).
 
 ## Start it locally
 
@@ -8,7 +8,7 @@ This React application contains the PacePoint demo shop and merchant-facing Puls
 2. From the repository root, start the Spring Boot API:
 
    ```powershell
-   .\run-server.ps1
+   .\run-server.ps1 -Service Merchant
    ```
 
    The ignored root `.env` is loaded by this script. Spring Boot does not read that file automatically.
@@ -25,7 +25,7 @@ This React application contains the PacePoint demo shop and merchant-facing Puls
 
 5. Open the local Vite URL printed in the terminal, usually http://localhost:5173.
 
-The Pulse merchant dashboard is at `http://localhost:5173/pulse`. It lists journeys for the merchant ID you select (defaults to `STRIDEHUB`) and shows the event history and Guard decisions for a selected journey.
+The separate Mandate Lens Pulse dashboard runs at `http://localhost:5174`. Use the **Pulse dashboard** link in the shop header. It lists journeys for the merchant ID you select (defaults to `STRIDEHUB`) and shows the event history and Guard decisions for a selected journey. Mandate Lens API must also be running on port 8081.
 
 The Vite development server proxies /api and /merchant-cart to http://localhost:8080. Do not set VITE_API_URL for this local setup.
 

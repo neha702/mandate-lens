@@ -4,8 +4,6 @@ import com.emeralds.mandatelens.merchant.cart.model.Cart;
 import com.emeralds.mandatelens.merchant.cart.model.CartItemRequest;
 import com.emeralds.mandatelens.merchant.cart.model.CartLine;
 import com.emeralds.mandatelens.merchant.cart.service.CartService;
-import com.emeralds.mandatelens.mandate.model.Mandate;
-import com.emeralds.mandatelens.mandate.service.MandateService;
 import com.emeralds.mandatelens.merchant.integration.storesync.model.StoreSyncCartRequest;
 import com.emeralds.mandatelens.merchant.integration.storesync.model.StoreSyncCartResponse;
 import com.emeralds.mandatelens.merchant.integration.storesync.model.StoreSyncCheckoutRequest;
@@ -20,7 +18,6 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -38,16 +35,17 @@ public class StoreSyncCartService {
     private final PayPalOrdersClient ordersClient;
     private final StoreSyncOrderRepository orderRepository;
     private final StoreSyncGuardService agentGuard;
-    private final MandateService mandateService;
     private final String demoJourneyId;
+    private final String demoMandateId;
     private final boolean paypalSandboxEnabled;
     private final String paypalReturnUrl;
     private final String paypalCancelUrl;
 
     public StoreSyncCartService(CartService cartService, PayPalOrdersClient ordersClient,
                                 StoreSyncOrderRepository orderRepository,
-                                StoreSyncGuardService agentGuard, MandateService mandateService,
-                                @Value("${agentguard.demo.journey-id:demo-shoes-001}") String demoJourneyId,
+                                StoreSyncGuardService agentGuard,
+                                @Value("${merchant.demo.journey-id:demo-shoes-001}") String demoJourneyId,
+                                @Value("${merchant.demo.mandate-id:mandate-demo-shoes-001}") String demoMandateId,
                                 @Value("${paypal.sandbox.enabled:false}") boolean paypalSandboxEnabled,
                                 @Value("${paypal.orders.return-url:http://localhost:5173/checkout/return}") String paypalReturnUrl,
                                 @Value("${paypal.orders.cancel-url:http://localhost:5173/checkout/cancel}") String paypalCancelUrl) {
@@ -55,8 +53,8 @@ public class StoreSyncCartService {
         this.ordersClient = ordersClient;
         this.orderRepository = orderRepository;
         this.agentGuard = agentGuard;
-        this.mandateService = mandateService;
         this.demoJourneyId = demoJourneyId;
+        this.demoMandateId = demoMandateId;
         this.paypalSandboxEnabled = paypalSandboxEnabled;
         this.paypalReturnUrl = paypalReturnUrl;
         this.paypalCancelUrl = paypalCancelUrl;
@@ -412,13 +410,10 @@ public class StoreSyncCartService {
     }
 
     private GuardContext resolveGuardContext() {
-        Mandate mandate = mandateService.findByJourneyId(demoJourneyId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "No local mandate is registered for configured demo journey " + demoJourneyId + "."));
-        if (!mandate.expiresAt().isAfter(Instant.now())) {
-            throw new IllegalStateException("The configured demo mandate has expired.");
+        if (demoJourneyId == null || demoJourneyId.isBlank() || demoMandateId == null || demoMandateId.isBlank()) {
+            throw new IllegalStateException("Merchant demo journey and mandate IDs must be configured.");
         }
-        return new GuardContext(mandate.journeyId(), mandate.mandateId());
+        return new GuardContext(demoJourneyId, demoMandateId);
     }
 
     private StoreSyncCartResponse.Money zero(String currency) { return new StoreSyncCartResponse.Money(currency, "0.00"); }

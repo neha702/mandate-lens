@@ -13,14 +13,14 @@ This document covers APIs served by Mandate Lens, its local Store Sync simulator
 | `GET` | `/api/journeys/{journeyId}` | Basic AgentPulse | Raw event timeline. |
 | `POST` | `/api/journeys/{journeyId}/events` | Basic AgentPulse | Append a demo/system journey event. |
 | `POST` | `/api/v1/authorizations` | Mandate Lens | Store a simulated AP2-style authorization envelope and register its normalized constraints. |
-| `POST` | `/api/v1/merchant-operations/check` | Merchant API | Check a proposed whole cart before applying an action. |
-| `POST` | `/api/v1/merchant-operations/{operationId}/result` | Merchant API | Report the actual cart, removal, or payment result. |
-| `GET` | `/api/v1/journeys/{journeyId}?merchantId=...` | Merchant API | Read saved operations, decisions, and timeline for the supplied merchant. |
-| `GET` | `/api/v1/journeys?merchantId=...` | Merchant API | List a merchant's recent journeys for the merchant Pulse dashboard (up to 100). |
-| `POST` | `/merchant-cart` | Local Store Sync simulator | Create a demo merchant cart and PayPal order context. |
-| `GET` | `/merchant-cart/{cartId}` | Local Store Sync simulator | Read a demo cart. |
-| `PUT` | `/merchant-cart/{cartId}` | Local Store Sync simulator | Replace all cart items; empty `items` clears the cart. |
-| `POST` | `/merchant-cart/{cartId}/checkout` | Local Store Sync simulator | Guard-check final cart and capture the PayPal order after `ALLOW`. |
+| `POST` | `/api/v1/merchant-operations/check` | Mandate Lens API (called by Merchant) | Check a proposed whole cart before applying an action. |
+| `POST` | `/api/v1/merchant-operations/{operationId}/result` | Mandate Lens API (called by Merchant) | Report the actual cart, removal, or payment result. |
+| `GET` | `/api/v1/journeys/{journeyId}?merchantId=...` | Mandate Lens API (Pulse dashboard) | Read saved operations, decisions, and timeline for the supplied merchant. |
+| `GET` | `/api/v1/journeys?merchantId=...` | Mandate Lens API (Pulse dashboard) | List a merchant's recent journeys (up to 100). |
+| `POST` | `/merchant-cart` | Merchant API, local Store Sync simulator | Create a demo merchant cart and PayPal order context. |
+| `GET` | `/merchant-cart/{cartId}` | Merchant API, local Store Sync simulator | Read a demo cart. |
+| `PUT` | `/merchant-cart/{cartId}` | Merchant API, local Store Sync simulator | Replace all cart items; empty `items` clears the cart. |
+| `POST` | `/merchant-cart/{cartId}/checkout` | Merchant API, local Store Sync simulator | Ask Mandate Lens to check final cart and capture PayPal order after `ALLOW`. |
 
 ## 2. Simulated AP2-style mandate contract
 
