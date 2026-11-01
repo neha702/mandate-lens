@@ -54,6 +54,12 @@ public class MerchantOperationService {
 
     public CheckResponse check(MerchantOperationRequests.Check request) {
         validateAction(request.action());
+        String journeyStatus = operations.findJourneyStatus(request.journeyId(), request.merchantId())
+                .orElseThrow(() -> new OperationNotFoundException("Journey was not found for this merchant."));
+        if (!List.of("ACTIVE", "EMPTY").contains(journeyStatus)) {
+            throw new InactiveJourneyException("This shopping journey is " + journeyStatus.toLowerCase()
+                    + ". Keep the merchant cart, get fresh shopper approval, and start a new journey before continuing.");
+        }
         Mandate mandate = mandates.findByJourneyId(request.journeyId())
                 .orElseThrow(() -> new OperationNotFoundException("No active mandate is linked to this journey."));
         if (!mandate.merchantId().equalsIgnoreCase(request.merchantId())) {
@@ -229,6 +235,9 @@ public class MerchantOperationService {
 
     public static class OperationNotFoundException extends RuntimeException {
         public OperationNotFoundException(String message) { super(message); }
+    }
+    public static class InactiveJourneyException extends RuntimeException {
+        public InactiveJourneyException(String message) { super(message); }
     }
     public static class OperationAlreadyExistsException extends RuntimeException {
         private final String operationId;

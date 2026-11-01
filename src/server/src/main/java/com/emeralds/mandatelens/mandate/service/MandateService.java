@@ -73,15 +73,27 @@ public class MandateService implements ApplicationRunner {
                         : List.of((String[]) rs.getArray("allowed_product_ids").getArray()),
                 rs.getString("shipping_country"), rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("expires_at") == null ? null : rs.getTimestamp("expires_at").toInstant(),
-                "SIMULATED_AP2".equals(rs.getString("authorization_source"))
-                        ? Mandate.Source.SIMULATED_AP2 : Mandate.Source.SIMULATED_AP2,
+                source(rs.getString("authorization_source")),
                 readEvidence(rs.getString("authorization_evidence")),
                 rs.getTimestamp("agentguard_registered_at") == null ? null
                         : rs.getTimestamp("agentguard_registered_at").toInstant())) : Optional.empty(), journeyId);
     }
 
+    public Optional<Mandate> findByExternalSessionId(String externalSessionId) {
+        List<String> journeyIds = jdbc.query("""
+                SELECT journey_id FROM trust.trust_journeys WHERE external_session_id = ?
+                ORDER BY started_at DESC LIMIT 1
+                """, (rs, row) -> rs.getString("journey_id"), externalSessionId);
+        return journeyIds.isEmpty() ? Optional.empty() : findByJourneyId(journeyIds.get(0));
+    }
+
     @Transactional
     public void save(Mandate mandate) {
+        save(mandate, null);
+    }
+
+    @Transactional
+    public void save(Mandate mandate, String externalSessionId) {
         jdbc.update("""
                 INSERT INTO trust.mandates
                 (mandate_id, merchant_id, user_ref, authorization_source, authorization_reference, status,
@@ -116,17 +128,26 @@ public class MandateService implements ApplicationRunner {
                 mandate.expiresAt() == null ? null : Timestamp.from(mandate.expiresAt()),
                 writeEvidence(mandate.authorizationEvidence()));
         jdbc.update("""
-                INSERT INTO trust.trust_journeys (journey_id, mandate_id, merchant_id, status, started_at)
-                VALUES (?, ?, ?, 'ACTIVE', ?)
+                INSERT INTO trust.trust_journeys
+                    (journey_id, mandate_id, merchant_id, external_session_id, status, started_at)
+                VALUES (?, ?, ?, ?, 'ACTIVE', ?)
                 ON CONFLICT (journey_id) DO UPDATE SET mandate_id = EXCLUDED.mandate_id,
-                    merchant_id = EXCLUDED.merchant_id, updated_at = NOW()
+                    merchant_id = EXCLUDED.merchant_id,
+                    external_session_id = COALESCE(EXCLUDED.external_session_id, trust.trust_journeys.external_session_id),
+                    updated_at = NOW()
                 """, mandate.journeyId(), mandate.mandateId(), mandate.merchantId(),
+                externalSessionId,
                 Timestamp.from(mandate.createdAt() == null ? Instant.now() : mandate.createdAt()));
     }
 
     public void markAgentGuardRegistered(String mandateId, Instant at) {
         jdbc.update("UPDATE trust.mandates SET agentguard_registered_at = ?, updated_at = NOW() " +
                 "WHERE mandate_id = ?", Timestamp.from(at), mandateId);
+    }
+
+    private Mandate.Source source(String value) {
+        try { return Mandate.Source.valueOf(value); }
+        catch (IllegalArgumentException | NullPointerException exception) { return Mandate.Source.SIMULATED_AP2; }
     }
 
     private String writeEvidence(Ap2AuthorizationEnvelope evidence) {

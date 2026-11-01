@@ -46,6 +46,19 @@ public class StoreSyncGuardService {
         return check(cartId, context, "CHECKOUT", cart, cart, shippingCountry);
     }
 
+    public CheckoutGuardResult checkCheckoutDetailed(String cartId, GuardContext context, Cart cart,
+                                                       String shippingCountry) {
+        JsonNode response = requestDecision(cartId, context, "CHECKOUT", cart, cart, shippingCountry);
+        String operationId = response.path("operationId").asText();
+        GuardDecision decision;
+        try {
+            decision = GuardDecision.valueOf(response.path("decision").asText());
+        } catch (IllegalArgumentException exception) {
+            throw new GuardIntegrationException("Mandate Lens returned an unknown checkout decision.");
+        }
+        return new CheckoutGuardResult(operationId, decision.name(), response);
+    }
+
     public String newResultOnlyOperationId() {
         return "op-" + UUID.randomUUID();
     }
@@ -71,6 +84,26 @@ public class StoreSyncGuardService {
 
     private String check(String cartId, GuardContext context, String action, Cart current,
                          Cart proposed, String proposedCountry) {
+        JsonNode response = requestDecision(cartId, context, action, current, proposed, proposedCountry);
+        if (response == null || response.path("operationId").asText().isBlank()) {
+            throw new GuardIntegrationException("Mandate Lens returned an incomplete decision.");
+        }
+        GuardDecision decision;
+        try {
+            decision = GuardDecision.valueOf(response.path("decision").asText());
+        } catch (IllegalArgumentException exception) {
+            throw new GuardIntegrationException("Mandate Lens returned an unknown decision.");
+        }
+        if (decision != GuardDecision.ALLOW) {
+            String reasons = response.path("reasons").findValuesAsText("message").stream()
+                    .reduce((left, right) -> left + "; " + right).orElse("No reason provided.");
+            throw new GuardDecisionDeniedException(decision, reasons);
+        }
+        return response.path("operationId").asText();
+    }
+
+    private JsonNode requestDecision(String cartId, GuardContext context, String action, Cart current,
+                                     Cart proposed, String proposedCountry) {
         if (proposedCountry == null || proposedCountry.isBlank()) {
             throw new GuardIntegrationException("Shipping country is required for the Mandate Lens check.");
         }
@@ -89,19 +122,10 @@ public class StoreSyncGuardService {
         if (response == null || response.path("operationId").asText().isBlank()) {
             throw new GuardIntegrationException("Mandate Lens returned an incomplete decision.");
         }
-        GuardDecision decision;
-        try {
-            decision = GuardDecision.valueOf(response.path("decision").asText());
-        } catch (IllegalArgumentException exception) {
-            throw new GuardIntegrationException("Mandate Lens returned an unknown decision.");
-        }
-        if (decision != GuardDecision.ALLOW) {
-            String reasons = response.path("reasons").findValuesAsText("message").stream()
-                    .reduce((left, right) -> left + "; " + right).orElse("No reason provided.");
-            throw new GuardDecisionDeniedException(decision, reasons);
-        }
-        return response.path("operationId").asText();
+        return response;
     }
+
+    public record CheckoutGuardResult(String operationId, String decision, JsonNode details) { }
 
     private void validateContext(GuardContext context) {
         if (context == null || context.journeyId() == null || context.journeyId().isBlank()) {

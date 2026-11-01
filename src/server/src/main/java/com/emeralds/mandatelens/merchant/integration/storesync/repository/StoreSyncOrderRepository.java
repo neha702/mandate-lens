@@ -102,6 +102,18 @@ public class StoreSyncOrderRepository {
     public record CartDetails(StoreSyncCartRequest.Customer customer,
                               StoreSyncCartRequest.Address shippingAddress,
                               StoreSyncCartRequest.Address billingAddress) { }
-    public record GuardContext(String journeyId, String mandateId) { }
+    public record GuardContext(String journeyId, String mandateId, boolean deferPaymentUntilApproval,
+                               String checkoutOperationId, com.fasterxml.jackson.databind.JsonNode checkoutGuardResult) {
+        public GuardContext(String journeyId, String mandateId) {
+            this(journeyId, mandateId, false, null, null);
+        }
+        public GuardContext(String journeyId, String mandateId, boolean deferPaymentUntilApproval) {
+            this(journeyId, mandateId, deferPaymentUntilApproval, null, null);
+        }
+        public GuardContext(String journeyId, String mandateId, boolean deferPaymentUntilApproval,
+                            String checkoutOperationId) {
+            this(journeyId, mandateId, deferPaymentUntilApproval, checkoutOperationId, null);
+        }
+    }
     public record OrderState(String orderId, int revision, String approvalUrl, String provider) { }
 }

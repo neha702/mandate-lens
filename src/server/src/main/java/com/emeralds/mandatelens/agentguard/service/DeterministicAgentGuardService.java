@@ -55,15 +55,19 @@ public class DeterministicAgentGuardService implements AgentGuardClient {
         Mandate mandate = mandates.findByJourneyId(request.journeyId())
                 .filter(found -> request.mandateId().equals(found.mandateId()))
                 .orElseThrow(() -> new IllegalArgumentException("Mandate is not stored for this journey."));
-        if (mandate.source() != Mandate.Source.SIMULATED_AP2) {
-            throw new IllegalArgumentException("The local engine only registers simulated AP2 mandates.");
-        }
         var authorization = request.authorization();
         var constraints = request.constraints();
-        if (authorization.authorizationReference() == null
+        boolean budgetConstraint = mandate.source() == Mandate.Source.SIMULATED_SHOPPER_CONSTRAINT;
+        boolean validSource = budgetConstraint
+                ? "SIMULATED_SHOPPER_CONSTRAINT".equals(authorization.source())
+                    && "DEMO_POLICY_V1".equals(authorization.protocolVersion())
+                    && mandate.authorizationEvidence() == null
+                : mandate.source() == Mandate.Source.SIMULATED_AP2
+                    && "SIMULATED_AP2".equals(authorization.source())
+                    && mandate.authorizationEvidence() != null
+                    && mandate.authorizationEvidence().protocolVersion().equals(authorization.protocolVersion());
+        if (!validSource || authorization.authorizationReference() == null
                 || !mandate.authorizationReference().equals(authorization.authorizationReference())
-                || mandate.authorizationEvidence() == null
-                || !mandate.authorizationEvidence().protocolVersion().equals(authorization.protocolVersion())
                 || constraints == null || constraints.maxAmount() == null
                 || mandate.maxAmount().compareTo(constraints.maxAmount()) != 0
                 || !mandate.currency().equalsIgnoreCase(constraints.currency())

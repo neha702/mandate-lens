@@ -20,6 +20,10 @@ This document covers APIs served by Mandate Lens, its local Store Sync simulator
 | `POST` | `/merchant-cart` | Merchant API, local Store Sync simulator | Create a demo merchant cart and PayPal order context. |
 | `GET` | `/merchant-cart/{cartId}` | Merchant API, local Store Sync simulator | Read a demo cart. |
 | `PUT` | `/merchant-cart/{cartId}` | Merchant API, local Store Sync simulator | Replace all cart items; empty `items` clears the cart. |
+| `POST` | `/api/merchant-sessions` | Merchant API, local MCP demo | Create a simulated shopper-budget constraint and Pulse journey via Mandate Lens. |
+| `POST` | `/merchant-cart/{cartId}/shopping-journey` | Merchant API, local MCP demo | Keep an open Merchant cart and attach it to a newly approved journey/mandate. |
+| `POST` | `/merchant-cart/{cartId}/checkout-preview` | Merchant API, local MCP demo | Run the final Guard check without creating a payment order. |
+| `POST` | `/merchant-cart/{cartId}/checkout-approval` | Merchant API, local MCP demo | Record shopper approval or decline; approval completes a simulated payment. |
 | `POST` | `/merchant-cart/{cartId}/checkout` | Merchant API, local Store Sync simulator | Ask Mandate Lens to check final cart and capture PayPal order after `ALLOW`. |
 
 ## 2. Simulated AP2-style mandate contract
@@ -262,6 +266,18 @@ These routes are enabled by the `storesync-simulator` profile, bind to loopback,
 ```
 
 Each item needs `variant_id` or legacy `item_id` and quantity at least 1. Catalog price is resolved server-side. Optional customer fields include name, phone, and `email_address`. Address fields use Store Sync snake_case names. Response has cart `id`, status, validation status/issues, items, totals, customer/address fields, payment method, and payment confirmation. If allowed and configured, create also creates a PayPal Orders v2 order and returns its order ID/approval URL in the payment method.
+
+For MCP budget sessions, the first cart request also includes `journey_id` and `mandate_id`; Merchant stores this mapping with the cart and defers order creation until checkout is approved. The budget is explicitly a simulated shopper constraint, not verified AP2 evidence.
+
+### MCP simulated checkout and cart retention
+
+For a purchase without a stated budget, the MCP shop first asks for the total budget and does not query the catalog yet. After the shopper submits a budget, its private action calls Merchant `GET /api/products`, selects the least expensive matching in-stock product whose requested quantity fits the budget, and displays that item and total. The shopper must then approve the exact item. With a budget already stated in chat, the catalog search happens when the purchase UI opens, but the shopper still approves the selected item. Only after item approval does the private action call Merchant `POST /api/merchant-sessions` with `{ "sessionId": "...", "maxAmount": 250.00, "currency": "USD" }`, then submit the selected cart for Merchant/AgentGuard evaluation. Merchant supplies its configured merchant ID when it calls Mandate Lens `POST /api/v1/shopping-sessions`, which creates the journey and registers the simulated constraint with local AgentGuard. This approval is a demo interaction; it is not a cryptographic AP2 credential.
+
+If the shopper returns to an existing open cart after its mandate expires, the UI can accept the cart ID. After the shopper approves a fresh budget, Merchant calls `POST /merchant-cart/{cartId}/shopping-journey` with `{ "journeyId": "...", "mandateId": "..." }`. Merchant retains the cart contents and changes its Guard context to the new journey. Completed carts cannot be re-linked.
+
+`POST /merchant-cart/{cartId}/checkout-preview` takes no body. It returns `operationId`, `journeyId`, total, currency, and `ALLOW` only after Guard allows the final cart. It creates no order and takes no payment. To record the shopper's choice, call `POST /merchant-cart/{cartId}/checkout-approval` with `{ "operationId": "...", "approved": true }` or `false`. Approval completes a local simulated payment and sends a `PAYMENT_SUCCEEDED` activity to Pulse; decline sends `PAYMENT_FAILED` with `SHOPPER_DECLINED`. This endpoint is for the local demo only. It does not create or verify a cryptographic AP2 mandate and cannot be used when PayPal Sandbox is enabled.
+
+Journeys expire when their linked mandate expires, not after a period of cart inactivity. An expired journey cannot authorize new cart or checkout operations. The Merchant cart remains stored; the shopper can start a new journey and re-link an open cart. If a payment result arrives for a checkout that was already approved before expiry, Pulse records the payment and marks that journey completed.
 
 The response uses this shape (values and optional fields vary by validation/order state):
 

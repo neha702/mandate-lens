@@ -16,11 +16,14 @@ import org.springframework.stereotype.Service;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class MandateRegistrationService {
@@ -63,9 +66,57 @@ public class MandateRegistrationService {
         return ensureRegistered(saved);
     }
 
+    /** Starts a demo shopping journey with a shopper-stated budget, not AP2 evidence. */
+    public ShoppingSessionResponse startShoppingSession(ShoppingSessionRequest request) {
+        if (request == null || blank(request.sessionId()) || blank(request.merchantId())
+                || request.maxAmount() == null || request.maxAmount().signum() <= 0
+                || blank(request.currency()) || !request.currency().matches("[A-Z]{3}")) {
+            throw new IllegalArgumentException("sessionId, merchantId, positive maxAmount, and three-letter currency are required.");
+        }
+
+        var existing = mandates.findByExternalSessionId(request.sessionId());
+        if (existing.isPresent()) {
+            Mandate saved = existing.get();
+            if (saved.source() != Mandate.Source.SIMULATED_SHOPPER_CONSTRAINT
+                    || !saved.merchantId().equalsIgnoreCase(request.merchantId())
+                    || saved.maxAmount().compareTo(request.maxAmount()) != 0
+                    || !saved.currency().equalsIgnoreCase(request.currency())) {
+                throw new IllegalArgumentException("sessionId was already used with different shopping constraints.");
+            }
+            ensureRegistered(saved);
+            return shoppingSessionResponse(request.sessionId(), saved);
+        }
+
+        Instant now = Instant.now();
+        String journeyId = "mcp-journey-" + UUID.randomUUID();
+        String mandateId = "mcp-budget-" + UUID.randomUUID();
+        Mandate mandate = new Mandate(mandateId, journeyId, "mcp-demo-shopper", request.merchantId(),
+                "demo-budget:" + request.sessionId(), request.maxAmount(), request.currency(),
+                List.of(), List.of(), null, now, now.plus(Duration.ofHours(8)),
+                Mandate.Source.SIMULATED_SHOPPER_CONSTRAINT, null, null);
+        mandates.save(mandate, request.sessionId());
+        Mandate saved = mandates.findByJourneyId(journeyId)
+                .orElseThrow(() -> new IllegalStateException("Could not load the new shopping journey."));
+        ensureRegistered(saved);
+        events.save(new PurchaseEvent("evt-constraints-" + journeyId, journeyId, Instant.now(),
+                "CONSTRAINTS_SAVED", "MCP", saved.maxAmount(), saved.currency(),
+                "The shopper set a simulated budget limit for this demo shopping journey.",
+                Map.of("externalSessionId", request.sessionId(), "mandateId", mandateId,
+                        "constraintType", "SHOPPER_STATED_BUDGET", "simulated", true,
+                        "ap2AuthorizationCreated", false)));
+        return shoppingSessionResponse(request.sessionId(), saved);
+    }
+
+    private ShoppingSessionResponse shoppingSessionResponse(String sessionId, Mandate mandate) {
+        return new ShoppingSessionResponse(sessionId, mandate.journeyId(), mandate.mandateId(),
+                mandate.maxAmount(), mandate.currency(), mandate.expiresAt(), "SIMULATED_CONSTRAINT",
+                "NOT_CREATED");
+    }
+
     /** Registers normalized constraints once; the original envelope remains in Mandate Lens. */
     public RegistrationResponse ensureRegistered(Mandate mandate) {
-        String hash = fingerprint(mandate.authorizationEvidence());
+        boolean budgetOnly = mandate.source() == Mandate.Source.SIMULATED_SHOPPER_CONSTRAINT;
+        String hash = budgetOnly ? fingerprintConstraints(mandate) : fingerprint(mandate.authorizationEvidence());
         if (mandate.agentGuardRegisteredAt() != null) {
             logger.info("Mandate already registered with AgentGuard: mandateId={} journeyId={}",
                     mandate.mandateId(), mandate.journeyId());
@@ -82,6 +133,11 @@ public class MandateRegistrationService {
         }
         Instant registeredAt = Instant.now();
         mandates.markAgentGuardRegistered(mandate.mandateId(), registeredAt);
+        if (budgetOnly) {
+            logger.info("Simulated shopper budget registered with AgentGuard: mandateId={} journeyId={} maxAmount={} currency={}",
+                    mandate.mandateId(), mandate.journeyId(), mandate.maxAmount(), mandate.currency());
+            return response(mandate, hash, "REGISTERED", registeredAt);
+        }
         var constraints = mandate.authorizationEvidence().normalizedConstraints();
         Map<String, Object> eventDetails = new LinkedHashMap<>();
         eventDetails.put("mandateId", mandate.mandateId());
@@ -115,7 +171,26 @@ public class MandateRegistrationService {
         }
     }
 
+    private String fingerprintConstraints(Mandate mandate) {
+        try {
+            byte[] bytes = mapper.writeValueAsBytes(Map.of("mandateId", mandate.mandateId(),
+                    "journeyId", mandate.journeyId(), "merchantId", mandate.merchantId(),
+                    "maxAmount", mandate.maxAmount(), "currency", mandate.currency()));
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (JsonProcessingException | NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("Could not fingerprint simulated shopping constraints.", exception);
+        }
+    }
+
     private RegisterMandateRequest toGuardRequest(Mandate mandate, String hash) {
+        if (mandate.source() == Mandate.Source.SIMULATED_SHOPPER_CONSTRAINT) {
+            return new RegisterMandateRequest(mandate.mandateId(), mandate.journeyId(), mandate.userId(),
+                    mandate.merchantId(), new RegisterMandateRequest.Authorization(
+                    "SIMULATED_SHOPPER_CONSTRAINT", mandate.authorizationReference(), "DEMO_POLICY_V1", hash, "SIMULATED"),
+                    new RegisterMandateRequest.Constraints(mandate.maxAmount(), mandate.currency(),
+                    mandate.allowedCategories(), mandate.shippingCountry(), mandate.allowedProductIds()),
+                    mandate.expiresAt());
+        }
         var evidence = mandate.authorizationEvidence();
         var constraints = evidence.normalizedConstraints();
         return new RegisterMandateRequest(mandate.mandateId(), mandate.journeyId(), mandate.userId(),
@@ -128,7 +203,10 @@ public class MandateRegistrationService {
 
     private RegistrationResponse response(Mandate mandate, String hash, String status, Instant registeredAt) {
         return new RegistrationResponse(mandate.mandateId(), mandate.journeyId(),
-                mandate.authorizationReference(), hash, "SIMULATED", status, registeredAt);
+                mandate.authorizationReference(), hash,
+                mandate.source() == Mandate.Source.SIMULATED_SHOPPER_CONSTRAINT
+                        ? "SIMULATED_CONSTRAINT" : "SIMULATED",
+                status, registeredAt);
     }
 
     private void validate(Ap2AuthorizationEnvelope envelope) {
@@ -175,6 +253,11 @@ public class MandateRegistrationService {
     public record RegistrationRequest(String mandateId, String journeyId, String userId, String merchantId,
                                      Instant createdAt, Instant expiresAt,
                                      Ap2AuthorizationEnvelope authorization) { }
+    public record ShoppingSessionRequest(String sessionId, String merchantId, BigDecimal maxAmount,
+                                         String currency) { }
+    public record ShoppingSessionResponse(String sessionId, String journeyId, String mandateId,
+                                          BigDecimal maxAmount, String currency, Instant expiresAt,
+                                          String constraintStatus, String ap2AuthorizationStatus) { }
     public record RegistrationResponse(String mandateId, String journeyId, String authorizationId,
                                        String authorizationHash, String verificationStatus,
                                        String agentGuardRegistrationStatus, Instant registeredAt) { }

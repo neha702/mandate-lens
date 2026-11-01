@@ -28,6 +28,11 @@ public class PendingOperationRepository {
                         rs.getString(4), rs.getString(5), rs.getString(6), rs.getString(7), rs.getString(8))) : Optional.empty(), merchantId, key);
     }
 
+    public Optional<String> findJourneyStatus(String journeyId, String merchantId) {
+        return jdbc.query("SELECT status FROM trust.trust_journeys WHERE journey_id = ? AND merchant_id = ?",
+                rs -> rs.next() ? Optional.of(rs.getString(1)) : Optional.empty(), journeyId, merchantId);
+    }
+
     public void create(String operationId, String journeyId, String merchantId, String cartId,
                        String action, String idempotencyKey, Object context, Instant dueAt) {
         try {
@@ -102,7 +107,8 @@ public class PendingOperationRepository {
         if (changed == 0) throw new OperationStateException("Operation is not awaiting a merchant result.");
         if ("PAYMENT_SUCCEEDED".equals(eventType)) {
             jdbc.update("UPDATE trust.trust_journeys SET status = 'COMPLETED', ended_at = ?, updated_at = NOW() " +
-                    "WHERE journey_id = ? AND status IN ('ACTIVE', 'EMPTY')", Timestamp.from(occurredAt), find(operationId).journeyId());
+                    "WHERE journey_id = ? AND status IN ('ACTIVE', 'EMPTY', 'EXPIRED')",
+                    Timestamp.from(occurredAt), find(operationId).journeyId());
         } else if (eventType.startsWith("ITEM_REMOVAL_") && "SUCCEEDED".equals(status) && cartEmpty) {
             jdbc.update("UPDATE trust.trust_journeys SET status = 'EMPTY', updated_at = NOW() " +
                     "WHERE journey_id = ? AND status = 'ACTIVE'", find(operationId).journeyId());
@@ -123,13 +129,17 @@ public class PendingOperationRepository {
                 Timestamp.from(now), Timestamp.from(now));
     }
 
-    public java.util.List<String> expireInactiveJourneys(Instant inactiveBefore, Instant now) {
+    public java.util.List<String> expireJourneysWithExpiredMandates(Instant now) {
         return jdbc.query("""
-                UPDATE trust.trust_journeys SET status = 'EXPIRED', ended_at = ?, updated_at = NOW()
-                WHERE status IN ('ACTIVE', 'EMPTY')
-                  AND COALESCE(last_event_at, started_at) <= ?
-                RETURNING journey_id
-                """, (rs, rowNum) -> rs.getString(1), Timestamp.from(now), Timestamp.from(inactiveBefore));
+                UPDATE trust.trust_journeys AS journey
+                SET status = 'EXPIRED', ended_at = mandate.expires_at, updated_at = NOW()
+                FROM trust.mandates AS mandate
+                WHERE journey.mandate_id = mandate.mandate_id
+                  AND journey.status IN ('ACTIVE', 'EMPTY')
+                  AND mandate.expires_at IS NOT NULL
+                  AND mandate.expires_at <= ?
+                RETURNING journey.journey_id
+                """, (rs, rowNum) -> rs.getString(1), Timestamp.from(now));
     }
 
     private String json(Object value) {

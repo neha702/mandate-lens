@@ -25,6 +25,8 @@ public class MerchantOperationController {
                     "Existing operationId=" + exception.operationId() + ", status=" + exception.status());
         } catch (MerchantOperationService.OperationNotFoundException exception) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage());
+        } catch (MerchantOperationService.InactiveJourneyException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage());
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage());
         }

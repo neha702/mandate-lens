@@ -152,6 +152,7 @@ curl.exe -X POST http://localhost:8081/api/journeys/demo-shoes-001/events `
 
 - The shop gets product data from the backend's Store Sync product endpoint.
 - The React storefront now runs a complete local demo of the simulated AI-agent proposal, Guard check, merchant result callback, checkout check, and simulated payment callback. The journey panel reads its history from `GET /api/v1/journeys/{journeyId}?merchantId=STRIDEHUB`.
+- The Cursor MCP demo asks for a budget first when none was provided. Only after the shopper enters it does the UI search Merchant, show one affordable shoe and the requested quantity, and ask the shopper to approve that item. A stated budget lets it search and show the item immediately for approval. Merchant/Guard then checks the cart; checkout still needs a separate review and approval.
 - The default merchant operation API calls the configured AgentGuard HTTP client. The other team's policy service must be running for external Guard decisions; `agentguard-deterministic` provides a local policy demo, and `storesync-sandbox-test` provides a permissive stub for protocol testing.
 - The `storesync-simulator` path uses the same operation check/result orchestration for cart create, cart replace, removals, and checkout, then can call PayPal Orders v2 Sandbox when configured.
 - Journey events, mandates, catalog products, carts, cart items, PayPal order/payment references and statuses, and Store Sync adapter state are persisted in PostgreSQL.

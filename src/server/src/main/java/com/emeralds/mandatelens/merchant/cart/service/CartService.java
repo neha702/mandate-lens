@@ -138,6 +138,22 @@ public class CartService {
                 lines, subtotal, currency, issues);
     }
 
+    /** Re-links an existing, open merchant cart to a fresh Mandate Lens journey. */
+    @Transactional
+    public void rebindJourney(String cartId, String journeyId) {
+        if (journeyId == null || journeyId.isBlank()) {
+            throw new IllegalArgumentException("journeyId is required.");
+        }
+        int updated = jdbc.update("""
+                UPDATE merchant.carts SET mandatelens_journey_id = ?, updated_at = NOW()
+                WHERE cart_id = ? AND status <> 'COMPLETED'
+                """, journeyId, cartId);
+        if (updated == 0) {
+            if (!exists(cartId)) throw new NoSuchElementException("Cart not found: " + cartId);
+            throw new IllegalStateException("A completed cart cannot be attached to a new journey.");
+        }
+    }
+
     /** Builds catalog-priced lines and records out-of-stock or insufficient-quantity variants. */
     private Cart buildCart(String cartId, String journeyId, List<CartItemRequest> requestedItems) throws IOException {
         if (requestedItems == null || requestedItems.isEmpty()) {
