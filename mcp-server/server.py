@@ -8,7 +8,7 @@ import os
 from datetime import datetime, timezone
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -24,6 +24,7 @@ from prefab_ui.rx import RESULT, Rx
 
 
 MERCHANT_API_BASE_URL = os.getenv("MERCHANT_API_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
+MANDATE_LENS_API_BASE_URL = os.getenv("MANDATE_LENS_API_BASE_URL", "http://127.0.0.1:8081").rstrip("/")
 PRODUCTS: list[dict] = []
 SESSIONS: dict[str, dict] = {}
 CARTS: dict[str, dict | None] = {}
@@ -45,6 +46,58 @@ def test_mcp_connection() -> dict:
         "ok": True,
         "message": "MCP tool call reached the Mandate Lens demo server successfully.",
         "serverTimeUtc": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@shop.tool(model=True)
+def get_purchase_journey_summary(journey_id: str, merchant_id: str = "STRIDEHUB") -> dict:
+    """Read the saved Mandate Lens journey and explain its latest result.
+
+    Call this when a shopper or merchant asks what happened, why an action was blocked,
+    or why a purchase failed, and they provide a journey ID. This is read-only: it does not
+    change a cart, re-run Guard, retry a payment, or create a new journey. Report the returned
+    explanation, cause, and next step. Do not guess when the stored journey lacks a cause.
+    """
+    if not journey_id or not journey_id.strip():
+        return {"ok": False, "message": "Please provide the journey ID from the Merchant order or Pulse history."}
+    if not merchant_id or not merchant_id.strip():
+        return {"ok": False, "message": "A merchant ID is required to look up the journey."}
+    query = urlencode({"merchantId": merchant_id.strip()})
+    path = f"/api/v1/journeys/{quote(journey_id.strip(), safe='')}?{query}"
+    try:
+        journey = mandate_lens_request(path)
+    except RuntimeError as error:
+        return {"ok": False, "journeyId": journey_id, "message": str(error)}
+    operations = [{key: operation.get(key) for key in (
+        "operationId", "cartId", "action", "status", "decisionId", "resultEventId", "createdAt", "resolvedAt"
+    )} for operation in journey.get("operations", [])]
+    decisions = [{key: decision.get(key) for key in (
+        "decisionId", "operationId", "action", "decision", "reasons", "ruleResults", "evaluatedAt"
+    )} for decision in journey.get("decisions", [])]
+    event_detail_fields = (
+        "operationId", "action", "cartId", "summary", "errorMessage", "failureCode", "message",
+        "total", "currency", "resultDetails",
+    )
+    timeline = [{
+        key: event.get(key) for key in (
+            "eventId", "type", "source", "outcome", "correlationId", "occurredAt"
+        )
+    } | {"details": {key: event.get("details", {}).get(key) for key in event_detail_fields
+                      if key in (event.get("details") or {})}}
+        for event in journey.get("timeline", [])]
+    return {
+        "ok": True,
+        "journeyId": journey.get("journeyId"),
+        "merchantId": journey.get("merchantId"),
+        "cartId": journey.get("cartId"),
+        "status": journey.get("status"),
+        "explanation": journey.get("explanation"),
+        "latestEventType": journey.get("latestEventType"),
+        "latestOutcome": journey.get("latestOutcome"),
+        "operations": operations,
+        "decisions": decisions,
+        "timeline": timeline,
+        "message": "This is a read-only explanation built from saved journey records. No cart or payment action was performed.",
     }
 
 
@@ -101,6 +154,25 @@ def merchant_request(method: str, path: str, payload: dict | None = None) -> dic
     except (URLError, TimeoutError, json.JSONDecodeError) as error:
         raise RuntimeError(
             f"Could not reach Merchant API at {MERCHANT_API_BASE_URL}. Start the merchant API and try again."
+        ) from error
+
+
+def mandate_lens_request(path: str) -> dict:
+    request = Request(f"{MANDATE_LENS_API_BASE_URL}{path}", headers={"Accept": "application/json"})
+    try:
+        with urlopen(request, timeout=10) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        try:
+            problem = json.loads(detail)
+            detail = problem.get("detail") or problem.get("message") or detail
+        except json.JSONDecodeError:
+            pass
+        raise RuntimeError(f"Mandate Lens returned HTTP {error.code}: {detail}") from error
+    except (URLError, TimeoutError, json.JSONDecodeError) as error:
+        raise RuntimeError(
+            f"Could not reach Mandate Lens at {MANDATE_LENS_API_BASE_URL}. Start the Mandate Lens API and try again."
         ) from error
 
 
@@ -775,6 +847,9 @@ mcp = FastMCP(
         "TOOL CALL REQUIREMENT: When a request matches a tool, call that MCP tool. Never merely "
         "describe what a tool would do, and never claim a tool is unavailable if it appears in the "
         "connected server's tool list. Report only facts returned by tool calls. "
+        "When asked what happened to a previous purchase or why it failed/was blocked, ask for the journey ID if missing. "
+        "If provided, call get_purchase_journey_summary and explain its saved summary, cause, and next step. "
+        "Do not guess a cause or retry a cart/payment action. This lookup is read-only. "
         "For a browse-only request such as 'show me shoes' or 'show me running shoes', call "
         "open_shoe_shop without purchase=true so the shopper sees the catalog. Do not start a session "
         "or invent a budget for browsing. For a purchase, call open_shoe_shop with purchase=true, the "
@@ -789,11 +864,8 @@ mcp = FastMCP(
         "prepare_purchase_item or start_shopping_session tools from chat. If model count and quantity instructions "
         "conflict, ask which they mean before opening the purchase UI. The shopper explicitly approves the complete "
         "selection before a journey/cart is created. "
-        "Only say the cart "
-        "changed when that result has ok=true and decision=ALLOW; otherwise state the returned failure "
-        "or Guard reason. For checkout, call preview_demo_checkout first, show its Mandate Lens decision, "
-        "reasons, and rule results, then summarize the result. "
-        "and call approve_demo_checkout only after the shopper explicitly approves that reviewed checkout. "
+        "Only say the cart changed when the UI reports ok=true and decision=ALLOW; otherwise state the returned failure "
+        "or Guard reason. The shopper uses the shop UI to run final Guard review and approve or decline checkout. "
         "This is a simulated budget and payment demo, not a verified AP2 authorization or a PayPal transaction."
     ),
     providers=[shop],

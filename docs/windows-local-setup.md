@@ -105,10 +105,60 @@ npx -y @modelcontextprotocol/inspector --server-url http://127.0.0.1:8001/mcp --
 Inspector intentionally opens a local browser page. This is the Inspector interface; it does not mean the MCP server itself opened a page. In Inspector, connect if needed, open **Tools**, and manually call:
 
 1. Call `test_mcp_connection` to confirm the Inspector can reach the MCP server. This changes no shopping data.
-2. Use `get_footwear_products` with `query` = `running` to check that the live catalog is reachable and see product IDs.
-3. The full buy flow includes a shopper-facing budget approval form inside the MCP shop UI. `start_shopping_session` is private to that UI, so Inspector cannot start a purchase session or bypass that approval. Use Cursor (or another MCP Apps client) for the full flow described below.
+2. After the block example below, call `get_purchase_journey_summary` with the journey ID you created and `merchant_id` = `STRIDEHUB`. It should return the saved explanation, cause, next step, Guard decisions, and timeline.
+3. The full buy flow includes a shopper-facing budget approval form inside the MCP shop UI. `start_shopping_session` is private to that UI, so do not try to bypass shopper approval. Use Cursor (or another MCP Apps client) for the full interactive purchase flow described below.
 
-To see the saved journey, optionally start the Pulse dashboard (Window 4), open `http://localhost:5174`, select merchant `STRIDEHUB`, and open the `journeyId` from step 1. For a block example, start a new session with a small budget and try adding an item priced above it. Guard should block it and the cart should remain unchanged.
+To see the saved journey, optionally start the Pulse dashboard (Window 4), open `http://localhost:5174`, select merchant `STRIDEHUB`, and open the `journeyId` from step 1.
+
+### Make a Guard block appear in “Need attention”
+
+Inspector can call MCP tools, but it cannot call the Mandate Lens Guard REST endpoint directly. Use the MCP shop UI to create a fresh active journey, PowerShell to submit a cart check that exceeds its budget, then Inspector to ask the MCP server to read and explain the saved result.
+
+1. Make sure PostgreSQL, Mandate Lens (port `8081`), Merchant (port `8080`), the MCP server (port `8001`), and the Pulse dashboard (port `5174`) are running.
+2. In Cursor, open the StrideHub shop UI and start a fresh purchase session with a `$200` budget. Choose one **Stride Pace** ($79) and approve the selection. This creates an active journey and a cart with one shoe. Do not reuse a completed or expired journey.
+3. Copy that new `journeyId` and `cartId` from the shop result or the Pulse dashboard. Keep the journey active.
+4. In PowerShell, replace the two ID values below if yours differ. The check says the cart currently has Stride Pace ($79), and proposes adding Stride Trail ($189), making the proposed total `$268`—over this journey’s `$200` authorization limit. The MCP purchase UI records the budget you enter for that journey; the seeded `.env` limit only applies to the separate seeded `demo-shoes-001` mandate.
+
+```powershell
+$body = @{
+    merchantId = "STRIDEHUB"
+    journeyId = "PASTE-ACTIVE-JOURNEY-ID"
+    cartId = "PASTE-ACTIVE-CART-ID"
+    action = "UPDATE_CART"
+    idempotencyKey = "needs-attention-$([guid]::NewGuid())"
+    currentCart = @{
+        currency = "USD"
+        items = @(@{
+            productId = "shoe-006"
+            category = "RUNNING_SHOES"
+            quantity = 1
+            unitPrice = 79
+        })
+        total = 79
+    }
+    proposedCart = @{
+        currency = "USD"
+        items = @(
+            @{ productId = "shoe-006"; category = "RUNNING_SHOES"; quantity = 1; unitPrice = 79 },
+            @{ productId = "shoe-003"; category = "RUNNING_SHOES"; quantity = 1; unitPrice = 189 }
+        )
+        total = 268
+    }
+    shippingCountry = "US"
+} | ConvertTo-Json -Depth 8
+
+$result = Invoke-RestMethod `
+    -Uri "http://localhost:8081/api/v1/merchant-operations/check" `
+    -Method Post `
+    -ContentType "application/json" `
+    -Body $body
+
+$result | Select-Object journeyId, decision, operationStatus, reasons
+```
+
+The response should say `decision: BLOCK` and `operationStatus: NOT_APPLIED`. Then refresh the Pulse dashboard, select `STRIDEHUB`, and open the **Attention** queue. The journey should appear because its latest Guard decision is BLOCK. Open it to see the plain-language summary, cause, suggested next step, and detailed saved evidence. This REST check records a Guard decision in Mandate Lens; it does not edit the Merchant cart or attempt payment.
+
+To ask the MCP server for the same explanation, connect Inspector to `http://127.0.0.1:8001/mcp`, open **Tools**, call `get_purchase_journey_summary`, and enter your journey ID and `STRIDEHUB`. The result is read-only. With a connected AI agent, ask: **“Why was journey [paste your journey ID] blocked?”**
 
 This Inspector walkthrough is a manual tool test, so there is no natural-language AI agent deciding which tool to call. The simulated budget is not a real AP2 authorization, and this MCP checkout makes no PayPal Sandbox or real-money transaction. Use the Merchant storefront UI for the separate PayPal Sandbox checkout path.
 

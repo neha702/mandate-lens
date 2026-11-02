@@ -41,7 +41,7 @@ Do not run `fastmcp dev apps server.py` for the Cursor demo. That is a UI develo
 
 ## Demo MCP tools
 
-Only two entry points are visible to the AI model: `open_shoe_shop` (the visual shop UI) and `test_mcp_connection` (a safe diagnostic). Shopping actions are private to the app UI using `@shop.tool(model=False)`, so the AI cannot skip the UI and call them as chat tools. The UI calls these helpers when the shopper interacts with its forms and buttons:
+Three entry points are visible to the AI model: `open_shoe_shop` (the visual shop UI), `test_mcp_connection` (a safe diagnostic), and `get_purchase_journey_summary` (a read-only journey lookup). Shopping actions are private to the app UI using `@shop.tool(model=False)`, so the AI cannot skip the UI and call them as chat tools. The UI calls these helpers when the shopper interacts with its forms and buttons:
 
 - `get_footwear_products`: private catalog lookup; the AI should open the shop UI instead of returning a raw product list in chat.
 - `prepare_purchase_item`: private UI action that searches Merchant after the budget is submitted and selects the requested distinct models/quantities for review.
@@ -50,8 +50,9 @@ Only two entry points are visible to the AI model: `open_shoe_shop` (the visual 
 - `reset_demo_cart`: private cart reset action.
 - `preview_demo_checkout`: private action called by the **Check final cart with Guard** button.
 - `approve_demo_checkout` / `decline_demo_checkout`: private actions called after the shopper chooses in the UI; approval produces only a simulated payment.
+- `get_purchase_journey_summary`: visible to the AI; reads a saved journey from Mandate Lens and returns the deterministic explanation plus the recorded operations, Guard decisions, and event timeline. It cannot change a cart or payment.
 
-The app metadata was checked after the visibility change: only `test_mcp_connection` has `app` and `model` visibility, while these shopping helpers have `app` visibility only. `open_shoe_shop` is the separate model-visible MCP App UI entry point.
+The shop UI and private cart helpers use the `app` visibility; `open_shoe_shop`, `test_mcp_connection`, and `get_purchase_journey_summary` are model-visible. The journey lookup calls `http://127.0.0.1:8081` by default; set `MANDATE_LENS_API_BASE_URL` if Mandate Lens uses another address.
 
 ## Merchant API connection
 
