@@ -1,4 +1,7 @@
 target/
+node_modules/
+**/node_modules/
+**/dist/
 /.env
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/

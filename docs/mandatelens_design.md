@@ -9,7 +9,29 @@ This document is the current reference for the demo architecture, AP2-style auth
 
 Mandate Lens demonstrates how a merchant can check an agent-driven shopping action against a shopper authorization, then record what actually happened. The demo uses a local Store Sync simulator and a simulated merchant called STRIDEHUB. It does not connect to a real merchant or receive real PayPal AP2 authorization evidence.
 
-The backend is one Spring Boot application with clear package boundaries:
+The local demo now runs two Spring processes from the current Maven module. They have separate entry points and Spring scans; the Merchant process does not load Mandate Lens controllers, and Mandate Lens does not load Merchant controllers. They currently share the local PostgreSQL database as a migration step, with only Mandate Lens running Flyway.
+
+```mermaid
+flowchart LR
+    Shopper[Shopper or demo AI agent] --> ShopUI[Merchant shop UI :5173]
+    ShopUI --> MerchantAPI[Merchant API :8080\nCatalog, cart, PayPal]
+    MerchantAPI -->|Guard check/result over HTTP| MandateAPI[Mandate Lens API :8081\nAgentGuard + AgentPulse + mandates]
+    MandateAPI -->|reads trusted product facts| MerchantAPI
+    MandateAPI -->|ALLOW or BLOCK| MerchantAPI
+    MandateAPI -->|journey history API| PulseUI[Pulse dashboard :5174]
+    MerchantAPI -->|checkout only when allowed| PayPal[PayPal Sandbox or demo payment]
+    MerchantAPI --> DB[(Shared local PostgreSQL for now)]
+    MandateAPI --> DB
+```
+
+| Process/UI | Responsibility |
+|---|---|
+| `MerchantApplication` / Merchant API | Product catalog, cart, PayPal Orders adapter; asks Mandate Lens for decisions and reports outcomes. |
+| `MandateLensApplication` / Mandate Lens API | Mandate evidence, Guard orchestration, Pulse operations, decision/event history and journey-read API. |
+| `storefront/` | Merchant-owned shopper-facing shop UI. |
+| `mandate-lens-ui/` | Mandate Lens-owned merchant Pulse dashboard. |
+
+The Java package responsibilities are:
 
 | Area | Responsibility |
 |---|---|
@@ -17,7 +39,8 @@ The backend is one Spring Boot application with clear package boundaries:
 | `mandate/` | Authorization envelope intake, normalized constraints, mandate and journey linkage. |
 | `agentguard/` | AgentGuard request/response contracts, HTTP client, and local demo implementations. |
 | `agentpulse/` | Merchant check/result APIs, operation lifecycle, decisions, events, and journey reads. |
-| `storefront/` | Presentation-only React storefront; it is not the merchant integration or policy service. |
+| `storefront/` | Merchant shop frontend, separate from the backend processes. |
+| `mandate-lens-ui/` | Pulse journey dashboard frontend, separate from the backend processes. |
 
 ## 2. Journey and cart model
 
@@ -82,7 +105,8 @@ Removal deltas and payment references are stored in the existing callback/event 
 - The simulator records PayPal capture responses as payment outcomes; it does not verify PayPal webhooks or ingest actual AP2 authorization evidence.
 - The last-item removal path clears local pending-order state but does not call PayPal to cancel/void the remote order. Cart/order creation or update errors can also happen after the merchant cart has been saved, so a real integration needs reconciliation.
 - Payment result reporting is synchronous after capture. Durable retry/outbox handling is needed so a successful PayPal capture cannot be left without its Mandate Lens event if reporting fails.
-- The React app in `storefront/` reads catalog data for a presentation. It is not wired to the Store Sync cart or merchant operation APIs.
+- `storefront/` and `mandate-lens-ui/` are separate frontends. The shop calls Merchant; the dashboard reads journey history from Mandate Lens.
+- The first service split still shares one database and one Maven module. A later deployment-hardening step should give each service independently owned persistence/migrations and build artifacts.
 
 ## 8. Before a real merchant/AP2 integration
 

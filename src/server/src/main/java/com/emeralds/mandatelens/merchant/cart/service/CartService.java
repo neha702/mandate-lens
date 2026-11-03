@@ -1,7 +1,5 @@
 package com.emeralds.mandatelens.merchant.cart.service;
 
-import com.emeralds.mandatelens.agentpulse.event.EventStore;
-import com.emeralds.mandatelens.agentpulse.event.PurchaseEvent;
 import com.emeralds.mandatelens.merchant.catalog.model.Product;
 import com.emeralds.mandatelens.merchant.catalog.service.ProductService;
 import com.emeralds.mandatelens.merchant.cart.model.Cart;
@@ -15,7 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -26,19 +23,17 @@ import java.util.UUID;
 /**
  * Stores merchant carts in PostgreSQL and calculates item values from the catalog.
  * The cart types used here are internal domain types, not PayPal wire models.
- * Cart IDs also correlate the lifecycle events written to AgentPulse.
+ * Cart IDs are also sent to Mandate Lens so its journey history can correlate cart activity.
  */
 @Service
 public class CartService {
     private static final Logger logger = LoggerFactory.getLogger(CartService.class);
 
     private final ProductService productService;
-    private final EventStore eventStore;
     private final JdbcTemplate jdbc;
 
-    public CartService(ProductService productService, EventStore eventStore, JdbcTemplate jdbc) {
+    public CartService(ProductService productService, JdbcTemplate jdbc) {
         this.productService = productService;
-        this.eventStore = eventStore;
         this.jdbc = jdbc;
     }
 
@@ -74,10 +69,7 @@ public class CartService {
                 INSERT INTO merchant.carts (cart_id, mandatelens_journey_id, source_channel, currency, subtotal, total)
                 VALUES (?, ?, 'STORESYNC', ?, ?, ?)
                 """, cart.id(), cart.journeyId(), cart.currency(), cart.subtotal(), cart.subtotal());
-        jdbc.update("UPDATE trust.trust_journeys SET cart_id = ?, updated_at = NOW() WHERE journey_id = ?",
-                cart.id(), cart.journeyId());
         saveLines(cart);
-        recordCartEvent(cart, "CART_CREATED");
         logger.info("Cart persisted: action=created cartId={} journeyId={} itemCount={} total={} currency={}",
                 cart.id(), cart.journeyId(), cart.items().size(), cart.subtotal(), cart.currency());
     }
@@ -114,7 +106,6 @@ public class CartService {
                 WHERE cart_id = ?
                 """, updated.currency(), updated.subtotal(), updated.subtotal(), updated.id());
         saveLines(updated);
-        recordCartEvent(updated, "CART_REPLACED");
         logger.info("Cart persisted: action=replaced cartId={} journeyId={} itemCount={} total={} currency={}",
                 updated.id(), updated.journeyId(), updated.items().size(), updated.subtotal(), updated.currency());
     }
@@ -188,24 +179,6 @@ public class CartService {
         }
 
         return new Cart(cartId, journeyId, lines, subtotal, currency, availabilityIssues);
-    }
-
-    /** Records a minimal lifecycle event against the journey that owns the cart. */
-    private void recordCartEvent(Cart cart, String type) {
-        String itemSummary = cart.items().stream()
-                .map(item -> item.variantId() + "x" + item.quantity())
-                .collect(java.util.stream.Collectors.joining(","));
-        String details = "items=" + itemSummary + ";availabilityIssues="
-                + String.join(",", cart.availabilityIssues());
-        eventStore.save(new PurchaseEvent(
-                "EVENT-" + UUID.randomUUID().toString(),
-                cart.journeyId(),
-                Instant.now(),
-                type,
-                "MERCHANT_API",
-                cart.subtotal(),
-                cart.currency(),
-                details));
     }
 
     private String newCartId() {

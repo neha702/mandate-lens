@@ -22,11 +22,6 @@ public class JourneyController {
         this.eventStore = eventStore;
     }
 
-    @GetMapping("/health")
-    public HealthResponse health() {
-        return new HealthResponse("ok", "AgentPulse API is running");
-    }
-
     @GetMapping("/journeys/{journeyId}")
     public JourneyResponse getJourney(@PathVariable String journeyId) {
         List<PurchaseEvent> events = eventStore.findByJourneyId(journeyId);
@@ -47,7 +42,6 @@ public class JourneyController {
         }
     }
 
-    public record HealthResponse(String status, String message) { }
     public record JourneyResponse(String journeyId, List<PurchaseEvent> events) { }
 
     public record CreateEventRequest(

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Navbar from "../components/Navbar";
-import { getMerchantJourney, getMerchantJourneys } from "../services/ProductService";
+import { getMerchantJourney, getMerchantJourneys } from "../services/PulseApi";
 import "./PulseDashboard.css";
 
 const DEFAULT_MERCHANT = new URLSearchParams(window.location.search).get("merchantId") || "STRIDEHUB";
+const MERCHANT_STORE_URL = import.meta.env.VITE_MERCHANT_STORE_URL || "http://localhost:5173";
 
 function pretty(value) {
   return String(value || "Unknown").replaceAll("_", " ").toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -45,7 +45,7 @@ function PulseDashboard() {
       setSelectedId((current) => rows?.some((journey) => journey.journeyId === current)
         ? current : rows?.[0]?.journeyId || "");
     } catch (loadError) {
-      setError(`${loadError.message} Check that the backend is running at http://localhost:8080 and that this merchant ID has journey data.`);
+      setError(`${loadError.message} Check that the Mandate Lens API is running at http://localhost:8081 and that this merchant ID has journey data.`);
       setJourneys([]);
     } finally {
       setLoading(false);
@@ -83,8 +83,14 @@ function PulseDashboard() {
   }
 
   return (
-    <div className="store-app pulse-app">
-      <Navbar cartCount={0} onCartClick={() => {}} pulseActive />
+    <div className="pulse-app">
+      <header className="ml-navbar">
+        <a className="ml-brand" href="/" aria-label="Mandate Lens AgentPulse dashboard">
+          <span className="ml-brand-symbol">M</span>
+          <span>MANDATE LENS<small>AGENTPULSE</small></span>
+        </a>
+        <a className="ml-store-link" href={MERCHANT_STORE_URL}>Merchant storefront <span aria-hidden="true">↗</span></a>
+      </header>
       <main className="pulse-main">
         <section className="pulse-heading">
           <div>

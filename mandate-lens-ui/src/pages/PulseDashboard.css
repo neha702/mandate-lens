@@ -1,5 +1,12 @@
-.nav-links a.nav-active { color: #184d3a; font-weight: 800; }
 .pulse-app { min-height: 100vh; background: #f4f6f3; }
+.ml-navbar { position: sticky; z-index: 5; top: 0; display: flex; height: 72px; align-items: center; justify-content: space-between; padding: 0 max(5vw, calc((100vw - 1440px) / 2)); border-bottom: 1px solid #e1e7e1; background: rgba(255,255,255,.96); backdrop-filter: blur(12px); }
+.ml-brand { display: flex; align-items: center; gap: 11px; color: #1e2924; font-size: 12px; font-weight: 850; letter-spacing: .13em; text-decoration: none; }
+.ml-brand > span:last-child { display: grid; gap: 3px; }
+.ml-brand small { color: #829087; font-size: 7px; letter-spacing: .19em; }
+.ml-brand-symbol { display: grid; width: 35px; height: 35px; place-items: center; border-radius: 50%; color: white; background: #184d3a; font: italic 22px Georgia, serif; }
+.ml-store-link { color: #42684f; font-size: 10px; font-weight: 700; text-decoration: none; }
+.ml-store-link:hover { text-decoration: underline; }
+.eyebrow { margin: 0; color: #84928a; font-size: 9px; font-weight: 800; letter-spacing: .16em; }
 .pulse-main { width: min(1440px, calc(100% - 64px)); margin: 0 auto; padding: 46px 0 54px; }
 .pulse-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 27px; }
 .pulse-heading h1 { margin: 9px 0 8px; color: #1e2924; font: 400 clamp(36px, 4vw, 52px)/1.05 Georgia, "Times New Roman", serif; letter-spacing: -.04em; }
@@ -84,6 +91,10 @@
   .pulse-workspace { grid-template-columns: minmax(300px, .9fr) minmax(340px, 1.1fr); }
 }
 @media (max-width: 760px) {
+  .ml-navbar { height: 62px; padding: 0 16px; }
+  .ml-brand { font-size: 10px; }
+  .ml-brand-symbol { width: 31px; height: 31px; }
+  .ml-store-link { font-size: 9px; }
   .pulse-main { width: calc(100% - 28px); padding-top: 30px; }
   .pulse-heading { align-items: stretch; flex-direction: column; }
   .merchant-picker { min-width: 0; }

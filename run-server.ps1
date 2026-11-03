@@ -1,3 +1,8 @@
+param(
+    [ValidateSet("MandateLens", "Merchant")]
+    [string]$Service = "MandateLens"
+)
+
 $ErrorActionPreference = "Stop"
 
 $repositoryRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -37,5 +42,16 @@ foreach ($keyName in @("DATABASE_URL", "DATABASE_USERNAME", "DATABASE_PASSWORD")
     }
 }
 
-& (Join-Path $repositoryRoot ".\mvnw.cmd") -pl src/server spring-boot:run
+$mainClass = switch ($Service) {
+    "Merchant" {
+        $env:SPRING_PROFILES_ACTIVE = "merchant-server,storesync-simulator"
+        "com.emeralds.mandatelens.merchant.MerchantApplication"
+    }
+    default {
+        $env:SPRING_PROFILES_ACTIVE = "mandatelens-server,agentguard-deterministic"
+        "com.emeralds.mandatelens.MandateLensApplication"
+    }
+}
+
+& (Join-Path $repositoryRoot ".\mvnw.cmd") -pl src/server spring-boot:run "-Dspring-boot.run.main-class=$mainClass"
 exit $LASTEXITCODE
