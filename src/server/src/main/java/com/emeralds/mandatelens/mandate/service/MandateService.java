@@ -6,6 +6,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.SqlArrayValue;
 import org.springframework.stereotype.Service;
@@ -22,10 +23,13 @@ import java.util.Optional;
 public class MandateService implements ApplicationRunner {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
+    private final BigDecimal demoMaxAmount;
 
-    public MandateService(JdbcTemplate jdbc, ObjectMapper mapper) {
+    public MandateService(JdbcTemplate jdbc, ObjectMapper mapper,
+                          @Value("${agentguard.demo.max-amount:600.00}") String demoMaxAmount) {
         this.jdbc = jdbc;
         this.mapper = mapper;
+        this.demoMaxAmount = new BigDecimal(demoMaxAmount);
     }
 
     @Override
@@ -41,11 +45,11 @@ public class MandateService implements ApplicationRunner {
                         "simulated-hash-open-checkout-001", null,
                         Ap2AuthorizationEnvelope.VerificationStatus.SIMULATED, created, expires,
                         java.util.Map.of("merchant", "STRIDEHUB", "allowedCategories", List.of("RUNNING_SHOES"),
-                                "maxAmount", "200.00", "currency", "USD", "shippingCountry", "US"))),
-                new Ap2AuthorizationEnvelope.NormalizedConstraints(new BigDecimal("200.00"), "USD",
+                                "maxAmount", demoMaxAmount.toPlainString(), "currency", "USD", "shippingCountry", "US"))),
+                new Ap2AuthorizationEnvelope.NormalizedConstraints(demoMaxAmount, "USD",
                         List.of("RUNNING_SHOES"), "US", List.of()));
         Mandate demo = new Mandate("mandate-demo-shoes-001", "demo-shoes-001", "demo-shopper-001",
-                "STRIDEHUB", evidence.authorizationId(), new BigDecimal("200.00"), "USD",
+                "STRIDEHUB", evidence.authorizationId(), demoMaxAmount, "USD",
                 List.of("RUNNING_SHOES"), List.of(), "US", created, expires, Mandate.Source.SIMULATED_AP2,
                 evidence, null);
         save(demo);

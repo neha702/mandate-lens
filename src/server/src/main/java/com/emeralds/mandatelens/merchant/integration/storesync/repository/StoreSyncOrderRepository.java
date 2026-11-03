@@ -24,6 +24,9 @@ public class StoreSyncOrderRepository {
     public Optional<OrderState> findOrder(String cartId) { return find(cartId, "order_state", OrderState.class); }
     @Transactional
     public void saveOrder(String cartId, OrderState order) {
+        String provider = order.provider() == null
+                ? (order.orderId().startsWith("DEMO-") ? "DEMO" : "PAYPAL")
+                : order.provider();
         jdbc.update("""
                 INSERT INTO merchant.orders
                 (order_id, cart_id, status, currency, subtotal, shipping_amount, tax_amount, total)
@@ -33,10 +36,10 @@ public class StoreSyncOrderRepository {
                 """, order.orderId(), cartId);
         jdbc.update("""
                 INSERT INTO merchant.payments (order_id, provider, provider_order_id, status, amount, currency)
-                SELECT ?, 'PAYPAL', ?, 'PENDING', total, currency FROM merchant.carts WHERE cart_id = ?
+                SELECT ?, ?, ?, 'PENDING', total, currency FROM merchant.carts WHERE cart_id = ?
                 ON CONFLICT (provider_order_id) DO UPDATE SET amount = EXCLUDED.amount,
                     currency = EXCLUDED.currency, updated_at = NOW()
-                """, order.orderId(), order.orderId(), cartId);
+                """, order.orderId(), provider, order.orderId(), cartId);
         save(cartId, "order_state", order);
     }
     @Transactional
@@ -100,5 +103,5 @@ public class StoreSyncOrderRepository {
                               StoreSyncCartRequest.Address shippingAddress,
                               StoreSyncCartRequest.Address billingAddress) { }
     public record GuardContext(String journeyId, String mandateId) { }
-    public record OrderState(String orderId, int revision, String approvalUrl) { }
+    public record OrderState(String orderId, int revision, String approvalUrl, String provider) { }
 }

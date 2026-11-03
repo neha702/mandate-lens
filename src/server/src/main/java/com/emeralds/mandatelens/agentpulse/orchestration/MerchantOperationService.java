@@ -82,6 +82,16 @@ public class MerchantOperationService {
         Instant now = Instant.now();
         operations.create(operationId, request.journeyId(), request.merchantId(), request.cartId(),
                 request.action(), request.idempotencyKey(), request, now.plusSeconds(callbackTimeoutSeconds));
+        eventStore.save(new com.emeralds.mandatelens.agentpulse.event.PurchaseEvent(
+                "evt-submitted-" + operationId, request.journeyId(), now,
+                "MERCHANT_OPERATION_SUBMITTED", "MERCHANT", request.proposedCart().total(),
+                request.proposedCart().currency(), "Merchant submitted a proposed cart for authorization.",
+                java.util.Map.of("operationId", operationId, "action", request.action(),
+                        "merchantId", request.merchantId(), "cartId", request.cartId(),
+                        "currentCart", request.currentCart(), "proposedCart", request.proposedCart(),
+                        "shippingCountry", request.shippingCountry(),
+                        "authorizationId", authorization.authorizationId(),
+                        "authorizationHash", authorization.authorizationHash())));
 
         GuardDecisionResponse decision;
         try {
@@ -98,6 +108,14 @@ public class MerchantOperationService {
             }
         } catch (RuntimeException exception) {
             operations.markCheckFailed(operationId);
+            eventStore.save(new com.emeralds.mandatelens.agentpulse.event.PurchaseEvent(
+                    "evt-check-failed-" + operationId, request.journeyId(), Instant.now(),
+                    "CART_ACTION_CHECK_FAILED", "AGENT_GUARD", request.proposedCart().total(),
+                    request.proposedCart().currency(), "AgentGuard could not complete the cart check.",
+                    java.util.Map.of("operationId", operationId, "action", request.action(),
+                            "cartId", request.cartId(), "guardClient", guard.getClass().getSimpleName(),
+                            "errorType", exception.getClass().getSimpleName(),
+                            "errorMessage", String.valueOf(exception.getMessage()))));
             logger.warn("AgentGuard check failed: operationId={} action={} journeyId={} cartId={} guardClient={} error={}",
                     operationId, request.action(), request.journeyId(), request.cartId(),
                     guard.getClass().getSimpleName(), exception.getMessage(), exception);

@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.emeralds.mandatelens.agentguard.client.AgentGuardClient;
 import com.emeralds.mandatelens.agentguard.model.RegisterMandateRequest;
 import com.emeralds.mandatelens.agentguard.model.RegisterMandateResponse;
+import com.emeralds.mandatelens.agentpulse.event.EventStore;
+import com.emeralds.mandatelens.agentpulse.event.PurchaseEvent;
 import com.emeralds.mandatelens.mandate.model.Ap2AuthorizationEnvelope;
 import com.emeralds.mandatelens.mandate.model.Mandate;
 import org.slf4j.Logger;
@@ -16,7 +18,9 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class MandateRegistrationService {
@@ -25,11 +29,14 @@ public class MandateRegistrationService {
     private final MandateService mandates;
     private final AgentGuardClient guard;
     private final ObjectMapper mapper;
+    private final EventStore events;
 
-    public MandateRegistrationService(MandateService mandates, AgentGuardClient guard, ObjectMapper mapper) {
+    public MandateRegistrationService(MandateService mandates, AgentGuardClient guard,
+                                      ObjectMapper mapper, EventStore events) {
         this.mandates = mandates;
         this.guard = guard;
         this.mapper = mapper;
+        this.events = events;
     }
 
     public RegistrationResponse register(RegistrationRequest request) {
@@ -75,6 +82,24 @@ public class MandateRegistrationService {
         }
         Instant registeredAt = Instant.now();
         mandates.markAgentGuardRegistered(mandate.mandateId(), registeredAt);
+        var constraints = mandate.authorizationEvidence().normalizedConstraints();
+        Map<String, Object> eventDetails = new LinkedHashMap<>();
+        eventDetails.put("mandateId", mandate.mandateId());
+        eventDetails.put("authorizationId", mandate.authorizationReference());
+        eventDetails.put("authorizationHash", hash);
+        eventDetails.put("authorizationSource", mandate.source().name());
+        eventDetails.put("verificationStatus", "SIMULATED");
+        eventDetails.put("mode", mandate.authorizationEvidence().mode().name());
+        eventDetails.put("protocolVersion", mandate.authorizationEvidence().protocolVersion());
+        eventDetails.put("maxAmount", constraints.maxAmount());
+        eventDetails.put("currency", constraints.currency());
+        eventDetails.put("allowedCategories", constraints.allowedCategories());
+        eventDetails.put("allowedProductIds", constraints.allowedProductIds());
+        eventDetails.put("shippingCountry", constraints.shippingCountry());
+        eventDetails.put("expiresAt", mandate.expiresAt());
+        events.save(new PurchaseEvent("evt-authorization-" + mandate.mandateId(), mandate.journeyId(),
+                registeredAt, "SHOPPER_AUTHORIZATION_REGISTERED", "MANDATE_LENS", null, null,
+                "Simulated shopper authorization was registered for this journey.", eventDetails));
         logger.info("Mandate registered with AgentGuard: mandateId={} journeyId={} status={}",
                 mandate.mandateId(), mandate.journeyId(), response.status());
         return response(mandate, hash, "REGISTERED", registeredAt);

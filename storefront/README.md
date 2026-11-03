@@ -1,16 +1,46 @@
-# React + Vite
+# PacePoint merchant UI and AgentPulse dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This React application contains the PacePoint demo shop and merchant-facing Pulse journey dashboard. For complete Windows PowerShell steps, including `.env`, the backend, MCP, and Cursor setup, see [../docs/windows-local-setup.md](../docs/windows-local-setup.md).
 
-Currently, two official plugins are available:
+## Start it locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. Start PostgreSQL and make sure the mandatelens database exists.
+2. From the repository root, start the Spring Boot API:
 
-## React Compiler
+   ```powershell
+   .\run-server.ps1
+   ```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+   The ignored root `.env` is loaded by this script. Spring Boot does not read that file automatically.
 
-## Expanding the ESLint configuration
+3. Keep `PAYPAL_SANDBOX_ENABLED=false` in the root `.env` while Sandbox credentials are being checked. This simulates checkout locally; no PayPal credentials are needed. Restart the backend after changing `.env`.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+4. In a second PowerShell terminal, run:
+
+   ```powershell
+   Set-Location "C:\Users\prati\OneDrive\Desktop\Hackathon\mandate-lens\storefront"
+   npm ci
+   npm run dev
+   ```
+
+5. Open the local Vite URL printed in the terminal, usually http://localhost:5173.
+
+The Pulse merchant dashboard is at `http://localhost:5173/pulse`. It lists journeys for the merchant ID you select (defaults to `STRIDEHUB`) and shows the event history and Guard decisions for a selected journey.
+
+The Vite development server proxies /api and /merchant-cart to http://localhost:8080. Do not set VITE_API_URL for this local setup.
+
+## Merchant APIs used by the UI
+
+- GET /api/products — load the PostgreSQL-backed catalog.
+- POST /merchant-cart — create the cart on the first add.
+- GET /merchant-cart/{cartId} — restore the saved cart after a page reload.
+- PUT /merchant-cart/{cartId} — apply quantity, removal, and shipping changes.
+- POST /merchant-cart/{cartId}/checkout — ask the backend to check the cart and complete either the local simulated payment or PayPal Sandbox capture.
+
+The backend owns cart prices, Guard checks, PayPal credentials, and order capture. The browser never receives the PayPal client secret.
+
+## Payment modes
+
+With `PAYPAL_SANDBOX_ENABLED=false`, the UI labels checkout as a local demo. The backend still performs Guard checks but does not call PayPal; completion is simulated and no money moves.
+
+PayPal Sandbox checkout is not part of the current demo path. When the team has verified Sandbox credentials and is ready to test it, see [../docs/local-e2e.md](../docs/local-e2e.md) for the optional setup. Never put Live credentials in the local demo configuration.

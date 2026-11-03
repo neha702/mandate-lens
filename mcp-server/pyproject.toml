@@ -1,0 +1,15 @@
+[project]
+name = "mandate-lens-merchant-mcp"
+version = "0.1.0"
+description = "Local MCP shopping demo for the Mandate Lens hackathon project"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastmcp[apps]>=4.0,<5.0",
+]
+
+[dependency-groups]
+dev = []
+
+[tool.uv]
+package = false

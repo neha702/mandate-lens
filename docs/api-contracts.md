@@ -16,6 +16,7 @@ This document covers APIs served by Mandate Lens, its local Store Sync simulator
 | `POST` | `/api/v1/merchant-operations/check` | Merchant API | Check a proposed whole cart before applying an action. |
 | `POST` | `/api/v1/merchant-operations/{operationId}/result` | Merchant API | Report the actual cart, removal, or payment result. |
 | `GET` | `/api/v1/journeys/{journeyId}?merchantId=...` | Merchant API | Read saved operations, decisions, and timeline for the supplied merchant. |
+| `GET` | `/api/v1/journeys?merchantId=...` | Merchant API | List a merchant's recent journeys for the merchant Pulse dashboard (up to 100). |
 | `POST` | `/merchant-cart` | Local Store Sync simulator | Create a demo merchant cart and PayPal order context. |
 | `GET` | `/merchant-cart/{cartId}` | Local Store Sync simulator | Read a demo cart. |
 | `PUT` | `/merchant-cart/{cartId}` | Local Store Sync simulator | Replace all cart items; empty `items` clears the cart. |
@@ -199,6 +200,12 @@ Response:
 
 ## 4. Journey read APIs
 
+### Merchant journey list: `GET /api/v1/journeys?merchantId=STRIDEHUB&status=BLOCKED&search=cart`
+
+Returns a newest-first JSON array containing journey and cart IDs, optional order ID, status/timestamps, latest event/outcome, and latest Guard decision. `status` and `search` are optional; search matches journey, cart, or order ID. The endpoint returns at most 100 journeys. The `merchantId` check is a demo ownership check, not authentication. The merchant UI uses this list to find a journey, then calls the detail endpoint below when a staff member opens it.
+
+The demo currently does not create a separate merchant order record or reliably associate an order ID with every journey. The dashboard therefore labels completed journeys as completed demo checkouts and presents all records under Journeys; a future merchant integration should save the journey ID with its real order.
+
 ### Basic event list: `GET /api/journeys/{journeyId}`
 
 Returns `{ "journeyId": "...", "events": [...] }`, or `404` if no events are stored for the journey. Each event includes event ID, journey ID, time, type, source, amount, currency, summary, and structured details.
@@ -208,8 +215,10 @@ Returns `{ "journeyId": "...", "events": [...] }`, or `404` if no events are sto
 Returns `journeyId`, `merchantId`, `cartId`, journey status and timestamps, `latestEventType`, `latestOutcome`, plus:
 
 - `operations`: operation/cart/action/status, decision ID, result event ID, created and resolved times;
-- `decisions`: decision and operation IDs, action, Guard outcome, reasons, rule results, evaluation time;
-- `timeline`: event ID/type/source/outcome/correlation ID, structured details and time.
+- `decisions`: decision and operation IDs, action, Guard outcome, reasons, rule results, evaluation time, and the saved `context` object. Context includes the submitted cart request, detailed rule findings/evidence, policy version, authorization hash, and evaluation fingerprint;
+- `timeline`: event ID/type/source/outcome/correlation ID, structured details and time. New demo journeys record authorization registration, merchant operation submission, Guard evaluation, merchant result, and payment result as separate activities. Failed Guard checks and lifecycle timeouts are recorded when they occur.
+
+The five numbered items in the demo UI are only a short flow guide. The saved activity list contains the individual events above; expand an activity to inspect its cart snapshot, decision, rules/reasons, callback, and full saved event/decision data. An AI or dashboard can use this structured API response rather than trying to interpret server logs. The current demo does not save a natural-language conversation transcript because the shopper/agent is simulated and the shopper selects products directly.
 
 The merchant ID comparison is a demo ownership check only; it is not authentication. The endpoint returns stored facts and does not call AgentGuard or PayPal.
 

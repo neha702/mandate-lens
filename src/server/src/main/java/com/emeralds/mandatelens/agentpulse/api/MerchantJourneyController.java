@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /** Merchant-facing read-only endpoint for the recorded history of one journey. */
 @Validated
 @RestController
@@ -18,6 +20,14 @@ public class MerchantJourneyController {
 
     public MerchantJourneyController(JourneyQueryService journeyQueryService) {
         this.journeyQueryService = journeyQueryService;
+    }
+
+    @GetMapping
+    public List<com.emeralds.mandatelens.agentpulse.journey.JourneyReadRepository.JourneyListItem> listJourneys(
+            @RequestParam @NotBlank String merchantId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String search) {
+        return journeyQueryService.listJourneys(merchantId, status, search);
     }
 
     @GetMapping("/{journeyId}")
