@@ -12,6 +12,8 @@ import java.util.List;
 /** Store Sync request DTO. Catalog prices are always resolved server-side. */
 public record StoreSyncCartRequest(
         @NotNull List<@Valid Item> items,
+        @JsonProperty("journey_id") String journeyId,
+        @JsonProperty("mandate_id") String mandateId,
         @Valid Customer customer,
         @JsonProperty("shipping_address") @Valid Address shippingAddress,
         @JsonProperty("billing_address") @Valid Address billingAddress,

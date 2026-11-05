@@ -8,6 +8,9 @@ import com.emeralds.mandatelens.merchant.integration.storesync.service.PayPalOrd
 import com.emeralds.mandatelens.merchant.integration.storesync.service.StoreSyncCartService;
 import com.emeralds.mandatelens.merchant.integration.storesync.service.StoreSyncGuardService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -24,10 +27,13 @@ import java.util.NoSuchElementException;
 @Profile("storesync-simulator")
 @CrossOrigin(origins = {
         "http://localhost:5173",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174"
 })
 @RequestMapping("/merchant-cart")
 public class StoreSyncCartController {
+    private static final Logger logger = LoggerFactory.getLogger(StoreSyncCartController.class);
     private final StoreSyncCartService cartService;
 
     public StoreSyncCartController(StoreSyncCartService cartService) {
@@ -94,6 +100,67 @@ public class StoreSyncCartController {
         }
     }
 
+    /** Attach an existing open cart to a newly authorized Mandate Lens journey. */
+    @PostMapping("/{cartId}/shopping-journey")
+    public StoreSyncCartResponse attachToNewJourney(@PathVariable String cartId,
+                                                    @Valid @RequestBody ShoppingJourneyRequest request) {
+        try {
+            return cartService.attachToNewJourney(cartId, request.journeyId(), request.mandateId());
+        } catch (NoSuchElementException exception) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage());
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage());
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage());
+        }
+    }
+
+    /** Run Guard's final cart review without creating a payment order. */
+    @PostMapping("/{cartId}/checkout-preview")
+    public StoreSyncCartService.CheckoutPreviewResponse previewCheckout(@PathVariable String cartId) {
+        logger.info("HTTP checkout-preview received cartId={}", cartId);
+        try {
+            StoreSyncCartService.CheckoutPreviewResponse result = cartService.previewCheckout(cartId);
+            logger.info("HTTP checkout-preview completed cartId={} journeyId={} decision={} operationId={}",
+                    cartId, result.journeyId(), result.decision(), result.operationId());
+            return result;
+        } catch (NoSuchElementException exception) {
+            logger.warn("HTTP checkout-preview returned 404 cartId={} reason={}", cartId, exception.getMessage());
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage());
+        } catch (StoreSyncGuardService.GuardDecisionDeniedException exception) {
+            logger.warn("HTTP checkout-preview returned 409 cartId={} reason={}", cartId, exception.getMessage());
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage());
+        } catch (StoreSyncGuardService.GuardIntegrationException exception) {
+            logger.error("HTTP checkout-preview returned 503 cartId={} reason={}", cartId, exception.getMessage(), exception);
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
+        } catch (IllegalStateException exception) {
+            logger.warn("HTTP checkout-preview returned 409 cartId={} reason={}", cartId, exception.getMessage());
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage());
+        } catch (IllegalArgumentException exception) {
+            logger.warn("HTTP checkout-preview returned 400 cartId={} reason={}", cartId, exception.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage());
+        }
+    }
+
+    /** Simulated checkout settlement; called only after explicit shopper approval in the MCP demo. */
+    @PostMapping("/{cartId}/checkout-approval")
+    public StoreSyncCartService.CheckoutApprovalResponse checkoutApproval(
+            @PathVariable String cartId,
+            @Valid @RequestBody StoreSyncCartService.CheckoutApprovalRequest request) {
+        try {
+            return request.approved() ? cartService.approveCheckout(cartId, request)
+                    : cartService.declineCheckout(cartId, request);
+        } catch (NoSuchElementException exception) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage());
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage());
+        } catch (StoreSyncGuardService.GuardIntegrationException exception) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage());
+        }
+    }
+
     /** Checkout evaluates the cart with AgentGuard before any PayPal capture request. */
     @PostMapping("/{cartId}/checkout")
     public StoreSyncCartResponse checkout(@PathVariable String cartId,
@@ -120,4 +187,6 @@ public class StoreSyncCartController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage());
         }
     }
+
+    public record ShoppingJourneyRequest(@NotBlank String journeyId, @NotBlank String mandateId) { }
 }

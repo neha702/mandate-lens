@@ -4,13 +4,12 @@ import com.emeralds.mandatelens.merchant.cart.model.Cart;
 import com.emeralds.mandatelens.merchant.cart.model.CartItemRequest;
 import com.emeralds.mandatelens.merchant.cart.model.CartLine;
 import com.emeralds.mandatelens.merchant.cart.service.CartService;
-import com.emeralds.mandatelens.mandate.model.Mandate;
-import com.emeralds.mandatelens.mandate.service.MandateService;
 import com.emeralds.mandatelens.merchant.integration.storesync.model.StoreSyncCartRequest;
 import com.emeralds.mandatelens.merchant.integration.storesync.model.StoreSyncCartResponse;
 import com.emeralds.mandatelens.merchant.integration.storesync.model.StoreSyncCheckoutRequest;
 import com.emeralds.mandatelens.merchant.integration.storesync.repository.StoreSyncOrderRepository;
 import com.emeralds.mandatelens.merchant.integration.storesync.repository.StoreSyncOrderRepository.GuardContext;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,7 +19,6 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -38,16 +36,17 @@ public class StoreSyncCartService {
     private final PayPalOrdersClient ordersClient;
     private final StoreSyncOrderRepository orderRepository;
     private final StoreSyncGuardService agentGuard;
-    private final MandateService mandateService;
     private final String demoJourneyId;
+    private final String demoMandateId;
     private final boolean paypalSandboxEnabled;
     private final String paypalReturnUrl;
     private final String paypalCancelUrl;
 
     public StoreSyncCartService(CartService cartService, PayPalOrdersClient ordersClient,
                                 StoreSyncOrderRepository orderRepository,
-                                StoreSyncGuardService agentGuard, MandateService mandateService,
-                                @Value("${agentguard.demo.journey-id:demo-shoes-001}") String demoJourneyId,
+                                StoreSyncGuardService agentGuard,
+                                @Value("${merchant.demo.journey-id:demo-shoes-001}") String demoJourneyId,
+                                @Value("${merchant.demo.mandate-id:mandate-demo-shoes-001}") String demoMandateId,
                                 @Value("${paypal.sandbox.enabled:false}") boolean paypalSandboxEnabled,
                                 @Value("${paypal.orders.return-url:http://localhost:5173/checkout/return}") String paypalReturnUrl,
                                 @Value("${paypal.orders.cancel-url:http://localhost:5173/checkout/cancel}") String paypalCancelUrl) {
@@ -55,15 +54,15 @@ public class StoreSyncCartService {
         this.ordersClient = ordersClient;
         this.orderRepository = orderRepository;
         this.agentGuard = agentGuard;
-        this.mandateService = mandateService;
         this.demoJourneyId = demoJourneyId;
+        this.demoMandateId = demoMandateId;
         this.paypalSandboxEnabled = paypalSandboxEnabled;
         this.paypalReturnUrl = paypalReturnUrl;
         this.paypalCancelUrl = paypalCancelUrl;
     }
 
     public StoreSyncCartResponse create(StoreSyncCartRequest request) throws IOException {
-        GuardContext guardContext = resolveGuardContext();
+        GuardContext guardContext = resolveGuardContext(request);
         Cart cart = cartService.previewCreate(guardContext.journeyId(), toCartItems(request.items()));
         StoreSyncOrderRepository.CartDetails details = cartDetails(request);
         logger.info("Store Sync cart create: cartId={} journeyId={} itemCount={} total={} currency={}",
@@ -75,7 +74,7 @@ public class StoreSyncCartService {
             cartService.commitCreate(cart);
             orderRepository.saveCartDetails(cart.id(), details);
             orderRepository.saveGuardContext(cart.id(), guardContext);
-            if (issues.isEmpty()) {
+            if (issues.isEmpty() && !guardContext.deferPaymentUntilApproval()) {
                 order = createPaymentOrder(cart, details);
                 orderRepository.saveOrder(cart.id(), order);
             }
@@ -101,6 +100,9 @@ public class StoreSyncCartService {
         StoreSyncOrderRepository.CartDetails previousDetails = orderRepository.findCartDetails(cartId).orElse(null);
         GuardContext guardContext = orderRepository.findGuardContext(cartId)
                 .orElseThrow(() -> new IllegalStateException("Cart has no journey-to-mandate mapping."));
+        if (guardContext.checkoutOperationId() != null) {
+            throw new IllegalStateException("Checkout is awaiting the shopper's decision. Approve or decline it before editing the cart.");
+        }
         Cart currentCart = cartService.get(cartId);
         Cart cart = cartService.previewReplace(cartId, toCartItems(request.items()));
         StoreSyncOrderRepository.CartDetails details = cartDetails(request);
@@ -131,7 +133,7 @@ public class StoreSyncCartService {
             if (removalOnly && cart.items().isEmpty()) {
                 if (order != null) orderRepository.cancelPendingOrder(cartId, order.orderId());
                 order = null;
-            } else if (issues.isEmpty()) {
+            } else if (issues.isEmpty() && !guardContext.deferPaymentUntilApproval()) {
                 if (order == null) {
                     order = createPaymentOrder(cart, details);
                 } else {
@@ -155,9 +157,32 @@ public class StoreSyncCartService {
         agentGuard.reportResult(operationId, guardContext, cartId, resultEventType, "SUCCESS",
                 cart.subtotal(), cart.currency(), order == null ? null : order.orderId(), null, null,
                 null, null, removedItems);
+        orderRepository.saveGuardContext(cartId, new GuardContext(guardContext.journeyId(), guardContext.mandateId(),
+                guardContext.deferPaymentUntilApproval()));
         logger.info("Store Sync cart replaced: cartId={} status={} validationIssueCount={} paypalOrderPresent={}",
                 cartId, issues.isEmpty() ? "CREATED" : "INCOMPLETE", issues.size(), order != null);
         return response(cart, issues.isEmpty() ? "CREATED" : "INCOMPLETE", order, issues);
+    }
+
+    /** Keeps an open Merchant cart while linking future checks to a freshly approved journey. */
+    public StoreSyncCartResponse attachToNewJourney(String cartId, String journeyId, String mandateId) {
+        if (orderRepository.findCompletedCart(cartId).isPresent()) {
+            throw new IllegalStateException("A completed cart cannot be attached to a new journey.");
+        }
+        GuardContext previous = orderRepository.findGuardContext(cartId)
+                .orElseThrow(() -> new IllegalStateException("Cart has no journey-to-mandate mapping."));
+        if (previous.checkoutOperationId() != null) {
+            throw new IllegalStateException("Checkout is awaiting the shopper's decision. Approve or decline it before starting a new journey.");
+        }
+        if (journeyId == null || journeyId.isBlank() || mandateId == null || mandateId.isBlank()) {
+            throw new IllegalArgumentException("journeyId and mandateId are required.");
+        }
+        cartService.rebindJourney(cartId, journeyId);
+        orderRepository.saveGuardContext(cartId, new GuardContext(journeyId, mandateId, true));
+        Cart cart = cartService.get(cartId);
+        StoreSyncOrderRepository.OrderState order = orderRepository.findOrder(cartId).orElse(null);
+        return response(cart, cart.availabilityIssues().isEmpty() ? "CREATED" : "INCOMPLETE", order,
+                inventoryIssues(cart));
     }
 
     public StoreSyncCartResponse get(String cartId) {
@@ -167,6 +192,134 @@ public class StoreSyncCartService {
         List<StoreSyncCartResponse.ValidationIssue> issues = inventoryIssues(cart);
         return response(cart, issues.isEmpty() ? "CREATED" : "INCOMPLETE",
                 orderRepository.findOrder(cartId).orElse(null), issues);
+    }
+
+    /** Guard-only checkout review. No order or payment is created here. */
+    public CheckoutPreviewResponse previewCheckout(String cartId) {
+        logger.info("Store Sync checkout preview received: cartId={}", cartId);
+        if (orderRepository.findCompletedCart(cartId).isPresent()) {
+            logger.warn("Store Sync checkout preview rejected: cartId={} reason=CART_ALREADY_COMPLETED", cartId);
+            throw new IllegalStateException("This cart has already completed checkout.");
+        }
+        Cart cart;
+        try {
+            cart = cartService.get(cartId);
+        } catch (RuntimeException exception) {
+            logger.error("Store Sync checkout preview could not load cart: cartId={} errorType={}",
+                    cartId, exception.getClass().getSimpleName(), exception);
+            throw exception;
+        }
+        if (cart.items().isEmpty()) {
+            logger.warn("Store Sync checkout preview rejected: cartId={} reason=EMPTY_CART", cartId);
+            throw new IllegalArgumentException("Cannot check out an empty cart.");
+        }
+        if (!cart.availabilityIssues().isEmpty()) {
+            logger.warn("Store Sync checkout preview rejected: cartId={} reason=UNAVAILABLE_ITEMS issueCount={} affectedVariantIds={}",
+                    cartId, cart.availabilityIssues().size(), cart.availabilityIssues());
+            throw new IllegalArgumentException("Cart has unavailable items.");
+        }
+        StoreSyncOrderRepository.CartDetails details = orderRepository.findCartDetails(cartId).orElse(null);
+        GuardContext context = orderRepository.findGuardContext(cartId).orElse(null);
+        if (context == null) {
+            logger.error("Store Sync checkout preview rejected: cartId={} reason=JOURNEY_MANDATE_MAPPING_MISSING",
+                    cartId);
+            throw new IllegalStateException("Cart has no journey-to-mandate mapping.");
+        }
+        logger.info("Store Sync checkout preview started: cartId={} journeyId={} total={} currency={} itemCount={}",
+                cartId, context.journeyId(), cart.subtotal(), cart.currency(), cart.items().size());
+        if (context.checkoutOperationId() != null) {
+            logger.info("Store Sync checkout preview reused pending Guard approval: cartId={} journeyId={} operationId={}",
+                    cartId, context.journeyId(), context.checkoutOperationId());
+            return new CheckoutPreviewResponse(context.checkoutOperationId(), cartId, context.journeyId(),
+                    cart.subtotal(), cart.currency(), "ALLOW",
+                    "This cart already has a Guard review awaiting the shopper's decision.",
+                    context.checkoutGuardResult());
+        }
+        JsonNode savedCheckoutResult = context.checkoutGuardResult();
+        if (savedCheckoutResult != null && !savedCheckoutResult.isNull() && !savedCheckoutResult.isMissingNode()) {
+            String decision = savedCheckoutResult.path("decision").asText("UNKNOWN");
+            logger.info("Store Sync checkout preview reused saved Guard decision: cartId={} journeyId={} decision={}",
+                    cartId, context.journeyId(), decision);
+            return new CheckoutPreviewResponse(null, cartId, context.journeyId(), cart.subtotal(),
+                    cart.currency(), decision, "Showing the latest Guard result for this unchanged cart.",
+                    savedCheckoutResult);
+        }
+        logger.info("Store Sync checkout preview has no saved Guard result; requesting a fresh checkout decision: cartId={} journeyId={} savedResultIsJsonNull={}",
+                cartId, context.journeyId(), savedCheckoutResult != null && savedCheckoutResult.isNull());
+        StoreSyncGuardService.CheckoutGuardResult guardResult;
+        try {
+            guardResult = agentGuard.checkCheckoutDetailed(cartId, context, cart, country(details));
+        } catch (RuntimeException exception) {
+            logger.error("Store Sync checkout preview failed during AgentGuard check: cartId={} journeyId={} total={} currency={} errorType={}",
+                    cartId, context.journeyId(), cart.subtotal(), cart.currency(),
+                    exception.getClass().getSimpleName(), exception);
+            throw exception;
+        }
+        String operationId = "ALLOW".equals(guardResult.decision()) ? guardResult.operationId() : null;
+        logger.info("Store Sync checkout preview completed: cartId={} journeyId={} decision={} operationId={}",
+                cartId, context.journeyId(), guardResult.decision(), operationId);
+        orderRepository.saveGuardContext(cartId, new GuardContext(context.journeyId(), context.mandateId(),
+                context.deferPaymentUntilApproval(), operationId, guardResult.details()));
+        logger.info("Store Sync checkout result saved: cartId={} journeyId={} operationId={} decision={} pendingApproval={} guardDetailsPresent={}",
+                cartId, context.journeyId(), operationId, guardResult.decision(), operationId != null,
+                guardResult.details() != null && !guardResult.details().isNull());
+        return new CheckoutPreviewResponse(operationId, cartId, context.journeyId(), cart.subtotal(),
+                cart.currency(), guardResult.decision(),
+                "ALLOW".equals(guardResult.decision())
+                        ? "Guard allowed this cart. Waiting for shopper approval; no payment has happened."
+                        : "Guard blocked this cart. Review the reasons and update the cart before trying again.",
+                guardResult.details());
+    }
+
+    /** Simulated MCP checkout settlement after the shopper explicitly approves the reviewed cart. */
+    public CheckoutApprovalResponse approveCheckout(String cartId, CheckoutApprovalRequest request) {
+        if (request == null || request.operationId() == null || request.operationId().isBlank()) {
+            throw new IllegalArgumentException("operationId is required from the checkout review.");
+        }
+        if (paypalSandboxEnabled) {
+            throw new IllegalStateException("MCP checkout is currently simulated. Turn PayPal Sandbox off or use the merchant storefront checkout.");
+        }
+        StoreSyncCartResponse completed = orderRepository.findCompletedCart(cartId).orElse(null);
+        if (completed != null) return new CheckoutApprovalResponse("COMPLETED", cartId,
+                completed.paymentConfirmation() == null ? null : completed.paymentConfirmation().merchantOrderNumber(),
+                "This cart was already paid in the demo.");
+        Cart cart = cartService.get(cartId);
+        StoreSyncOrderRepository.CartDetails details = orderRepository.findCartDetails(cartId).orElse(null);
+        GuardContext context = orderRepository.findGuardContext(cartId)
+                .orElseThrow(() -> new IllegalStateException("Cart has no journey-to-mandate mapping."));
+        requirePendingCheckout(context, request.operationId());
+        StoreSyncOrderRepository.OrderState order = createPaymentOrder(cart, details);
+        String captureId = "DEMO-CAPTURE-" + UUID.randomUUID();
+        agentGuard.reportResult(request.operationId(), context, cartId, "PAYMENT_SUCCEEDED", "SUCCESS",
+                cart.subtotal(), cart.currency(), order.orderId(), null,
+                "Shopper approved the reviewed cart; demo payment completed without moving money.",
+                order.orderId(), captureId, List.of());
+        orderRepository.saveOrder(cartId, order);
+        StoreSyncCartResponse completedResponse = response(cart, "COMPLETED", order, List.of(),
+                new StoreSyncCartResponse.PaymentConfirmation(order.orderId(), null));
+        orderRepository.saveCompletedCart(cartId, completedResponse, captureId);
+        orderRepository.saveGuardContext(cartId, new GuardContext(context.journeyId(), context.mandateId(),
+                context.deferPaymentUntilApproval()));
+        return new CheckoutApprovalResponse("COMPLETED", cartId, order.orderId(),
+                "Approved. Simulated payment completed; no PayPal Sandbox or real money was used.");
+    }
+
+    /** Close a reviewed checkout as declined without creating an order or taking payment. */
+    public CheckoutApprovalResponse declineCheckout(String cartId, CheckoutApprovalRequest request) {
+        if (request == null || request.operationId() == null || request.operationId().isBlank()) {
+            throw new IllegalArgumentException("operationId is required from the checkout review.");
+        }
+        Cart cart = cartService.get(cartId);
+        GuardContext context = orderRepository.findGuardContext(cartId)
+                .orElseThrow(() -> new IllegalStateException("Cart has no journey-to-mandate mapping."));
+        requirePendingCheckout(context, request.operationId());
+        agentGuard.reportResult(request.operationId(), context, cartId, "PAYMENT_FAILED", "FAILED",
+                cart.subtotal(), cart.currency(), null, "SHOPPER_DECLINED",
+                "Shopper declined checkout; no payment was attempted.", null, null, List.of());
+        orderRepository.saveGuardContext(cartId, new GuardContext(context.journeyId(), context.mandateId(),
+                context.deferPaymentUntilApproval()));
+        return new CheckoutApprovalResponse("DECLINED", cartId, null,
+                "Checkout declined. The cart remains available and no payment was made.");
     }
 
     public StoreSyncCartResponse checkout(String cartId, StoreSyncCheckoutRequest request) throws IOException {
@@ -411,14 +564,25 @@ public class StoreSyncCartService {
                 : details.shippingAddress().countryCode();
     }
 
-    private GuardContext resolveGuardContext() {
-        Mandate mandate = mandateService.findByJourneyId(demoJourneyId)
-                .orElseThrow(() -> new IllegalStateException(
-                        "No local mandate is registered for configured demo journey " + demoJourneyId + "."));
-        if (!mandate.expiresAt().isAfter(Instant.now())) {
-            throw new IllegalStateException("The configured demo mandate has expired.");
+    private void requirePendingCheckout(GuardContext context, String operationId) {
+        if (context.checkoutOperationId() == null || !context.checkoutOperationId().equals(operationId)) {
+            throw new IllegalArgumentException("operationId does not match the active Guard checkout review for this cart.");
         }
-        return new GuardContext(mandate.journeyId(), mandate.mandateId());
+    }
+
+    private GuardContext resolveGuardContext(StoreSyncCartRequest request) {
+        boolean hasJourney = request.journeyId() != null && !request.journeyId().isBlank();
+        boolean hasMandate = request.mandateId() != null && !request.mandateId().isBlank();
+        if (hasJourney || hasMandate) {
+            if (!hasJourney || !hasMandate) {
+                throw new IllegalArgumentException("journey_id and mandate_id must be provided together.");
+            }
+            return new GuardContext(request.journeyId(), request.mandateId(), true);
+        }
+        if (demoJourneyId == null || demoJourneyId.isBlank() || demoMandateId == null || demoMandateId.isBlank()) {
+            throw new IllegalStateException("Merchant demo journey and mandate IDs must be configured.");
+        }
+        return new GuardContext(demoJourneyId, demoMandateId);
     }
 
     private StoreSyncCartResponse.Money zero(String currency) { return new StoreSyncCartResponse.Money(currency, "0.00"); }
@@ -431,4 +595,10 @@ public class StoreSyncCartService {
         }
         return issues;
     }
+
+    public record CheckoutPreviewResponse(String operationId, String cartId, String journeyId,
+                                          BigDecimal total, String currency, String decision,
+                                          String message, JsonNode guardResult) { }
+    public record CheckoutApprovalRequest(String operationId, boolean approved) { }
+    public record CheckoutApprovalResponse(String status, String cartId, String orderId, String message) { }
 }

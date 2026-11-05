@@ -1,0 +1,9 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,500;1,400&display=swap");
+
+* { box-sizing: border-box; }
+html, body, #root { min-width: 320px; min-height: 100%; margin: 0; background: #10151d; }
+body { color: #edf2f7; background: #10151d; font-family: "DM Sans", "Segoe UI", Arial, sans-serif; }
+button, input, select { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #8e89ff; outline-offset: 2px; }
+::selection { color: #fff; background: #5249c9; }

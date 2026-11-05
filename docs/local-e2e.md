@@ -2,24 +2,29 @@
 
 This guide walks through the local Mandate Lens API and, optionally, a full Store Sync checkout against PayPal Sandbox. The repository currently has no automated end-to-end test classes; these are manual HTTP checks. Maven's `test` goal runs the unit tests when present.
 
-## 1. Start PostgreSQL and the API
+## 1. Start PostgreSQL and both APIs
 
-Use Java 17+ and PostgreSQL. Create a local database named `mandatelens`, then put its connection values in the ignored repository-root `.env` file (`DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD`). Set `SPRING_PROFILES_ACTIVE=storesync-simulator,agentguard-deterministic` there to run the Store Sync simulator with local policy enforcement. Flyway applies the schema and the application seeds the demo journey, mandate, and catalog on startup. Spring Boot imports this file automatically when the app starts from the repository root.
+Use Java 17+ and PostgreSQL. Create a local database named `mandatelens`, then put its connection values in the ignored repository-root `.env` file (`DATABASE_URL`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD`). Mandate Lens runs Flyway and seeds the demo journey and mandate; Merchant uses the same database for this first split and serves catalog/cart APIs. Start Mandate Lens first, then Merchant, following [windows-local-setup.md](windows-local-setup.md).
 
-From the repository root, start the API. On Windows PowerShell, use the script so `.env` values are loaded into the backend process:
+On Windows PowerShell, use the script so `.env` values are loaded into both backend processes. Start Mandate Lens first:
 
 ```powershell
-.\run-server.ps1
+.\run-server.ps1 -Service MandateLens
 ```
 
-On macOS/Linux, `make run-server` sources `.env` through `local-env.sh` and starts the Maven wrapper. To exercise only the merchant operation API, set `SPRING_PROFILES_ACTIVE=agentguard-deterministic` in `.env`; include `storesync-simulator` when you also want the Store Sync routes. Restart the server after changing profiles.
+In a second terminal, start Merchant:
+
+```powershell
+.\run-server.ps1 -Service Merchant
+```
 
 In a second terminal, check that it is ready and inspect the seeded data:
 
 ```sh
+curl -i http://localhost:8081/api/health
 curl -i http://localhost:8080/api/health
 curl -s http://localhost:8080/api/products
-curl -s 'http://localhost:8080/api/v1/journeys/demo-shoes-001?merchantId=STRIDEHUB'
+curl -s 'http://localhost:8081/api/v1/journeys/demo-shoes-001?merchantId=STRIDEHUB'
 ```
 
 The demo mandate is simulated and allows up to USD 600 by default for `RUNNING_SHOES` shipped to `US`. Set `AGENTGUARD_DEMO_MAX_AMOUNT` in the root `.env` to change the local demo limit. The expanded catalog includes lower-priced shoes for multi-item cart examples.
@@ -31,7 +36,7 @@ Submit an allowed add-item check. The API response contains an `operationId`; us
 Watch the API terminal for `HTTP request completed`, `AgentGuard check started`, and `AgentGuard check completed` entries. They show the request status/duration and the selected Guard client, proposed cart total, mandate limit, final decision, and rule results. Each HTTP response includes an `X-Request-Id` that matches the request log. Request/response bodies are not logged.
 
 ```sh
-curl -s -X POST http://localhost:8080/api/v1/merchant-operations/check \
+curl -s -X POST http://localhost:8081/api/v1/merchant-operations/check \
   -H 'Content-Type: application/json' \
   -d '{
     "merchantId":"STRIDEHUB",
@@ -48,7 +53,7 @@ curl -s -X POST http://localhost:8080/api/v1/merchant-operations/check \
 After you copy the returned `operationId`, report the merchant outcome (replace `<operationId>`):
 
 ```sh
-curl -i -X POST 'http://localhost:8080/api/v1/merchant-operations/<operationId>/result' \
+curl -i -X POST 'http://localhost:8081/api/v1/merchant-operations/<operationId>/result' \
   -H 'Content-Type: application/json' \
   -d '{
     "eventId":"local-e2e-event-001",

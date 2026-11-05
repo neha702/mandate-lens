@@ -1,11 +1,12 @@
 # Mandate Lens
 
-Mandate Lens is the Spring Boot service under `src/server`. It exposes a merchant-facing operation check/result API that calls the configured AgentGuard service and records decisions and merchant outcomes in PostgreSQL. The local Store Sync simulator uses that same orchestration for cart creation, cart updates, removals, and checkout. The optional React storefront lives under `storefront` and is for presentations only.
+Mandate Lens is the AgentPulse and AgentGuard service under `src/server`; the PacePoint merchant API is a separate Spring process built from the same codebase for this first local split. The merchant calls Mandate Lens over HTTP for checks and reports real cart/payment outcomes. Pulse journey history is shown in its own UI under `mandate-lens-ui`.
 
 ## Project layout
 
 - `src/server/` — Spring Boot / Java 17 API and service modules.
-- `storefront/` — optional React shop used for presentations; it is not a Mandate Lens service.
+- `storefront/` — PacePoint merchant shop UI (port 5173).
+- `mandate-lens-ui/` — Mandate Lens Pulse dashboard (port 5174).
 - `docs/mandatelens_design.md` — current as-built hackathon architecture and flow overview.
 - `docs/database-schemas.md` — all PostgreSQL schemas, tables, columns, keys, and migrations.
 - `docs/api-contracts.md` — Mandate Lens, Store Sync simulator, AgentGuard, and simulated mandate contracts.
@@ -17,16 +18,18 @@ Source layout:
 ```text
 src/
   server/src/main/java/com/emeralds/mandatelens/
-    MandateLensApplication.java       # starts the one backend application
+    MandateLensApplication.java       # Mandate Lens process entry point
+    merchant/MerchantApplication.java # separate merchant process entry point
     agentpulse/                       # entry APIs, orchestration, events, operations
     agentguard/                       # separate Guard client and contract models
     mandate/                          # shared trust data used by both modules
     merchant/                         # catalog, cart, Store Sync, PayPal adapter
   server/src/main/resources/          # Spring config and database migrations
-storefront/                            # optional shopper-facing UI, outside the services
+storefront/                            # merchant-owned shopper-facing UI
+mandate-lens-ui/                       # Mandate Lens-owned Pulse dashboard
 ```
 
-The `src/` directory contains the Spring Boot application. AgentPulse owns the merchant operation API, pending operations, and journey history. The AgentGuard area contains the HTTP contract adapter plus local deterministic and sandbox-test implementations; the separately deployed policy engine is outside this application. `storefront/` is an optional sample shop for presentations; it is not part of the service architecture.
+The two Spring processes currently compile from the same Maven module, but they have separate entry points, Spring scans, ports, and HTTP responsibilities. Merchant owns catalog/cart/payment APIs. Mandate Lens owns Guard orchestration, mandate data, decisions, and Pulse history. They temporarily share one local PostgreSQL database; only Mandate Lens runs migrations. The frontends are separate too: merchant shop at 5173, Pulse dashboard at 5174.
 
 ```mermaid
 flowchart TD
@@ -58,17 +61,23 @@ Use Java 17+, PostgreSQL, and the included Maven wrapper. Create a database name
 
 The local `.env` already contains the PostgreSQL URL, username, and your local password. Update those values there if your PostgreSQL setup changes. A safe-to-share template is in `.env.example`.
 
-From the project root in PowerShell:
+Start Mandate Lens first, then Merchant, each in a separate PowerShell window from the project root:
 
 ```powershell
 .\run-server.ps1
 ```
 
+This starts Mandate Lens at `http://localhost:8081`. In the second window run:
+
+```powershell
+.\run-server.ps1 -Service Merchant
+```
+
+Merchant API runs at `http://localhost:8080`.
+
 This script loads the root `.env` values into the backend process, then starts Spring Boot. Use it after editing `.env` so the database and demo settings are passed consistently.
 
-On macOS/Linux, put local database and Spring profile settings in the ignored `.env` file, then run `make run-server` from the project root. The target loads that file and starts the backend with the Maven wrapper.
-
-The API runs at `http://localhost:8080`.
+On macOS/Linux, start `make run-mandatelens` and `make run-merchant` in separate terminals. Both load the root `.env` and select the correct Spring main class/profile. `make run-storefront` and `make run-pulse-ui` start the two separate frontends.
 
 ## Run the shop frontend
 
@@ -92,13 +101,16 @@ Run `npm ci` only once, or again after dependencies change.
 
 Open the local Vite URL shown in the terminal. The PacePoint merchant UI loads its products from `GET /api/products` and uses the Store Sync merchant cart endpoints to create/read/update carts and complete PayPal Sandbox checkout. Vite proxies both `/api` and `/merchant-cart` to the local backend, so do not set `VITE_API_URL` for local development. See [docs/local-e2e.md](docs/local-e2e.md) for Sandbox setup.
 
-The same merchant UI has a Pulse dashboard page at `http://localhost:5173/pulse`. It lists journeys for the selected merchant (defaults to `STRIDEHUB`) and displays the selected journey's saved activity timeline and Guard decisions. It reads `GET /api/v1/journeys?merchantId=...` and `GET /api/v1/journeys/{journeyId}?merchantId=...`. For the no-Sandbox demo, leave `PAYPAL_SANDBOX_ENABLED=false`; checkout is simulated locally until the Sandbox credentials are confirmed.
+The Pulse dashboard is a separate UI app under `mandate-lens-ui`. To start it in Windows PowerShell, open another terminal, run `cd mandate-lens-ui`, then `npm ci` once and `npm run dev`. Open `http://localhost:5174`. It lists journeys for the selected merchant (defaults to `STRIDEHUB`) and shows saved activity and Guard decisions. It reads the journey APIs from Mandate Lens on port 8081. The shop header's **Pulse dashboard** link opens it in another browser tab.
+
+For local demo checkout, leave `PAYPAL_SANDBOX_ENABLED=false`; checkout is simulated and does not contact PayPal.
 
 ## Try the APIs
 
 Health check:
 
 ```powershell
+curl.exe http://localhost:8081/api/health
 curl.exe http://localhost:8080/api/health
 ```
 
@@ -111,7 +123,7 @@ curl.exe http://localhost:8080/api/products
 Read the seeded purchase journey:
 
 ```powershell
-curl.exe http://localhost:8080/api/journeys/demo-shoes-001
+curl.exe "http://localhost:8081/api/v1/journeys/demo-shoes-001?merchantId=STRIDEHUB"
 ```
 
 Guard decisions use the merchant-facing operation API described below. It evaluates the proposed cart using the configured AgentGuard integration and the journey's stored simulated mandate.
@@ -129,7 +141,7 @@ The hackathon demo accepts one simulated AP2-style authorization envelope at `PO
 Add a sample event to the journey:
 
 ```powershell
-curl.exe -X POST http://localhost:8080/api/journeys/demo-shoes-001/events `
+curl.exe -X POST http://localhost:8081/api/journeys/demo-shoes-001/events `
   -H "Content-Type: application/json" `
   -d '{"id":"evt_103","occurredAt":"2026-10-20T09:05:00Z","type":"checkout_started","source":"simulated_demo","amount":209.00,"currency":"USD","details":"Demo checkout started."}'
 ```
@@ -140,6 +152,7 @@ curl.exe -X POST http://localhost:8080/api/journeys/demo-shoes-001/events `
 
 - The shop gets product data from the backend's Store Sync product endpoint.
 - The React storefront now runs a complete local demo of the simulated AI-agent proposal, Guard check, merchant result callback, checkout check, and simulated payment callback. The journey panel reads its history from `GET /api/v1/journeys/{journeyId}?merchantId=STRIDEHUB`.
+- The Cursor MCP demo asks for a budget first when none was provided. Only after the shopper enters it does the UI search Merchant, show one affordable shoe and the requested quantity, and ask the shopper to approve that item. A stated budget lets it search and show the item immediately for approval. Merchant/Guard then checks the cart; checkout still needs a separate review and approval.
 - The default merchant operation API calls the configured AgentGuard HTTP client. The other team's policy service must be running for external Guard decisions; `agentguard-deterministic` provides a local policy demo, and `storesync-sandbox-test` provides a permissive stub for protocol testing.
 - The `storesync-simulator` path uses the same operation check/result orchestration for cart create, cart replace, removals, and checkout, then can call PayPal Orders v2 Sandbox when configured.
 - Journey events, mandates, catalog products, carts, cart items, PayPal order/payment references and statuses, and Store Sync adapter state are persisted in PostgreSQL.

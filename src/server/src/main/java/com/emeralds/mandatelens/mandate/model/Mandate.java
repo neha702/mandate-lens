@@ -28,6 +28,7 @@ public record Mandate(
     }
 
     public enum Source {
-        SIMULATED_AP2
+        SIMULATED_AP2,
+        SIMULATED_SHOPPER_CONSTRAINT
     }
 }

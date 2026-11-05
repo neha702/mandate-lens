@@ -44,15 +44,3 @@ export function checkoutCart(cartId, checkout) {
     body: JSON.stringify(checkout),
   });
 }
-
-export function getMerchantJourneys(merchantId, { status = "", search = "" } = {}) {
-  const query = new URLSearchParams({ merchantId });
-  if (status) query.set("status", status);
-  if (search.trim()) query.set("search", search.trim());
-  return request(`/api/v1/journeys?${query.toString()}`);
-}
-
-export function getMerchantJourney(journeyId, merchantId) {
-  const query = new URLSearchParams({ merchantId });
-  return request(`/api/v1/journeys/${encodeURIComponent(journeyId)}?${query.toString()}`);
-}

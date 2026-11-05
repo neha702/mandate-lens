@@ -42,7 +42,12 @@ public class DeterministicRuleEvaluator implements RuleEvaluator {
 
         findings.add(finding("JOURNEY_MANDATE_LINK", "MANDATE", PASS, NONE, "JOURNEY_MANDATE_MATCH",
                 "The mandate is linked to this journey.", values("journeyId", context.journeyId())));
-        if (mandate.source() == Mandate.Source.SIMULATED_AP2 && allowSimulatedMandates) {
+        if (mandate.source() == Mandate.Source.SIMULATED_SHOPPER_CONSTRAINT && allowSimulatedMandates) {
+            findings.add(finding("MANDATE_VERIFICATION", "MANDATE", PASS, NONE,
+                    "SIMULATED_BUDGET_CONSTRAINT", "Simulated shopper budget is active; this is not AP2 authorization evidence.",
+                    values("source", mandate.source().name(), "simulated", true,
+                            "ap2AuthorizationCreated", false)));
+        } else if (mandate.source() == Mandate.Source.SIMULATED_AP2 && allowSimulatedMandates) {
             findings.add(finding("MANDATE_VERIFICATION", "MANDATE", PASS, NONE,
                     "SIMULATED_MANDATE_ACCEPTED", "Simulated mandate accepted by local development policy.",
                     values("source", mandate.source().name(), "simulated", true)));
