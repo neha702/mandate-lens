@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 from datetime import datetime, timezone
 import uuid
@@ -23,6 +24,7 @@ from prefab_ui.components import (
 from prefab_ui.rx import RESULT, Rx
 
 
+logger = logging.getLogger(__name__)
 MERCHANT_API_BASE_URL = os.getenv("MERCHANT_API_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 MANDATE_LENS_API_BASE_URL = os.getenv("MANDATE_LENS_API_BASE_URL", "http://127.0.0.1:8081").rstrip("/")
 PRODUCTS: list[dict] = []
@@ -510,7 +512,10 @@ def preview_demo_checkout(session_id: str = "") -> dict:
         result = merchant_request("POST", f"/merchant-cart/{cart['id']}/checkout-preview", {})
     except RuntimeError as error:
         session["checkoutOperationId"] = None
-        return {"ok": False, "decision": "BLOCK", "message": str(error),
+        logger.exception("Checkout Guard preview request failed: sessionId=%s cartId=%s",
+                         session_id, cart.get("id"))
+        return {"ok": False, "checkoutError": str(error),
+                "message": "Mandate Lens did not return a checkout decision. See the checkout error below.",
                 "session": session, "cart": current_cart(session_id)}
     decision = str(result.get("decision", "BLOCK")).upper()
     session["checkoutOperationId"] = result.get("operationId") if decision == "ALLOW" else None
@@ -635,13 +640,20 @@ def open_shoe_shop(query: str = "", max_amount: float | None = None,
                    product_id: str = "", different_models: int = 1) -> PrefabApp:
     """Browse the catalog, or guide a purchase through budget, search, and approval in order.
 
-    If a purchase request has no budget, call this with purchase=True and no max_amount.
-    It shows the budget form before fetching products. Once entered, the UI searches Merchant
-    and shows one or more distinct affordable shoe models. Set different_models to the number
-    of distinct models requested. Quantity is the number of each selected model.
+    For browsing, use purchase=False; browsing ignores budget, quantity, product, and cart values
+    that may have been supplied for an earlier request. For buying, set purchase=True. If no
+    budget was stated, omit max_amount so the UI asks for it before searching Merchant. Quantity
+    is the number of pairs of each model. Use different_models greater than one only when the
+    shopper explicitly asked for distinct models.
     """
     global PRODUCTS
-    purchase = purchase or bool(product_id) or max_amount is not None
+    purchase = bool(purchase)
+    if not purchase:
+        max_amount = None
+        cart_id = ""
+        quantity = 1
+        product_id = ""
+        different_models = 1
     if purchase and max_amount is not None:
         initial_result = prepare_purchase_item(max_amount, query, quantity, product_id, cart_id, different_models)
     else:
@@ -751,6 +763,14 @@ def open_shoe_shop(query: str = "", max_amount: float | None = None,
                                 with If("!result.guardResult"):
                                     Button("Check final cart with Guard", variant="outline", onClick=CallTool(
                                         preview_demo_checkout, onSuccess=SetState("result", RESULT)))
+                                with If("result.checkoutError"):
+                                    with Card(css_class="border-amber-300 bg-amber-50 text-amber-950"):
+                                        with CardHeader():
+                                            Badge("CHECK FAILED", variant="warning")
+                                            Heading("Checkout Guard review did not finish", level=3)
+                                            Text(Rx("result.checkoutError"))
+                                        with CardContent():
+                                            Text("No checkout approval was created. Review the Merchant and Mandate Lens server logs, then retry the check.")
                                 with If("result.operationId"):
                                     with Card(css_class="border-emerald-300 bg-emerald-50 text-emerald-950"):
                                         with CardHeader():
@@ -851,11 +871,14 @@ mcp = FastMCP(
         "If provided, call get_purchase_journey_summary and explain its saved summary, cause, and next step. "
         "Do not guess a cause or retry a cart/payment action. This lookup is read-only. "
         "For a browse-only request such as 'show me shoes' or 'show me running shoes', call "
-        "open_shoe_shop without purchase=true so the shopper sees the catalog. Do not start a session "
+        "open_shoe_shop with purchase=false. Do not carry forward a budget, quantity, cart, or model "
+        "count from an earlier request; browse mode ignores those values. Do not start a session "
         "or invent a budget for browsing. For a purchase, call open_shoe_shop with purchase=true, the "
-        "shopper's requested quantity per model, different_models equal to the number of distinct models requested, "
-        "and a search query. Interpret '3 different running shoes' as three distinct models with quantity one each; "
-        "interpret '3 pairs of running shoes' as one model with quantity three. If the shopper already stated a budget, pass "
+        "shopper's requested quantity per model, and a search query. Default to one model; set "
+        "different_models above one only when the shopper explicitly asks for distinct models. "
+        "'Buy me 3 shoes' means three pairs of one model, not three models with three pairs each. "
+        "If the shopper explicitly asks for '3 different shoes', select three distinct models, one pair each "
+        "unless they specify another quantity. If the shopper already stated a budget, pass "
         "that exact max_amount; the UI searches Merchant and shows the matching affordable selection for approval. "
         "If no budget was stated, do not call get_footwear_products first: open the UI without max_amount, "
         "ask for the budget, then the UI searches Merchant after the shopper submits it. The UI chooses "

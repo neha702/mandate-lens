@@ -205,7 +205,11 @@ public class StoreSyncCartService {
         StoreSyncOrderRepository.CartDetails details = orderRepository.findCartDetails(cartId).orElse(null);
         GuardContext context = orderRepository.findGuardContext(cartId)
                 .orElseThrow(() -> new IllegalStateException("Cart has no journey-to-mandate mapping."));
+        logger.info("Store Sync checkout preview started: cartId={} journeyId={} total={} currency={} itemCount={}",
+                cartId, context.journeyId(), cart.subtotal(), cart.currency(), cart.items().size());
         if (context.checkoutOperationId() != null) {
+            logger.info("Store Sync checkout preview reused pending Guard approval: cartId={} journeyId={} operationId={}",
+                    cartId, context.journeyId(), context.checkoutOperationId());
             return new CheckoutPreviewResponse(context.checkoutOperationId(), cartId, context.journeyId(),
                     cart.subtotal(), cart.currency(), "ALLOW",
                     "This cart already has a Guard review awaiting the shopper's decision.",
@@ -213,13 +217,24 @@ public class StoreSyncCartService {
         }
         if (context.checkoutGuardResult() != null) {
             String decision = context.checkoutGuardResult().path("decision").asText("BLOCK");
+            logger.info("Store Sync checkout preview reused saved Guard decision: cartId={} journeyId={} decision={}",
+                    cartId, context.journeyId(), decision);
             return new CheckoutPreviewResponse(null, cartId, context.journeyId(), cart.subtotal(),
                     cart.currency(), decision, "Showing the latest Guard result for this unchanged cart.",
                     context.checkoutGuardResult());
         }
-        StoreSyncGuardService.CheckoutGuardResult guardResult = agentGuard.checkCheckoutDetailed(
-                cartId, context, cart, country(details));
+        StoreSyncGuardService.CheckoutGuardResult guardResult;
+        try {
+            guardResult = agentGuard.checkCheckoutDetailed(cartId, context, cart, country(details));
+        } catch (RuntimeException exception) {
+            logger.error("Store Sync checkout preview failed: cartId={} journeyId={} total={} currency={} errorType={}",
+                    cartId, context.journeyId(), cart.subtotal(), cart.currency(),
+                    exception.getClass().getSimpleName(), exception);
+            throw exception;
+        }
         String operationId = "ALLOW".equals(guardResult.decision()) ? guardResult.operationId() : null;
+        logger.info("Store Sync checkout preview completed: cartId={} journeyId={} decision={} operationId={}",
+                cartId, context.journeyId(), guardResult.decision(), operationId);
         orderRepository.saveGuardContext(cartId, new GuardContext(context.journeyId(), context.mandateId(),
                 context.deferPaymentUntilApproval(), operationId, guardResult.details()));
         return new CheckoutPreviewResponse(operationId, cartId, context.journeyId(), cart.subtotal(),
