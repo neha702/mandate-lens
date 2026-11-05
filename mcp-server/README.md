@@ -39,6 +39,16 @@ For a different-model purchase prompt, say: **“Buy 3 different running shoes w
 
 Do not run `fastmcp dev apps server.py` for the Cursor demo. That is a UI development preview and intentionally opens a browser. For the normal demo, use only `uv run fastmcp run server.py --transport http --host 127.0.0.1 --port 8001` above. It starts the MCP endpoint without opening a webpage.
 
+## Checkout diagnostic logs
+
+The MCP process and Merchant process now log the checkout path without printing request bodies, credentials, or authorization data. Keep both PowerShell windows open while reproducing the issue:
+
+- **MCP window:** look for `Checkout preview started`, then `Merchant HTTP request started ... checkout-preview`, followed by either `Checkout preview response` or `Checkout preview request failed`.
+- **Merchant window (port 8080):** look for `HTTP checkout-preview received`, `Store Sync checkout preview started`, then `Mandate Lens decision request started` and `Mandate Lens decision response received`. A rejected request logs an HTTP status and reason.
+- **Mandate Lens window (port 8081):** look for `AgentGuard check started: action=CHECKOUT` and `AgentGuard check completed`. If those lines are absent, checkout did not reach Guard.
+
+`INFO` is detailed enough for normal diagnosis. To enable additional Python runtime messages, set `$env:MCP_LOG_LEVEL = "DEBUG"` in the MCP PowerShell window before starting it. After reproducing, share the log lines from the click time in all three windows; the journey ID, cart ID, and operation ID help match the same request across services.
+
 ## Demo MCP tools
 
 Three entry points are visible to the AI model: `open_shoe_shop` (the visual shop UI), `test_mcp_connection` (a safe diagnostic), and `get_purchase_journey_summary` (a read-only journey lookup). Shopping actions are private to the app UI using `@shop.tool(model=False)`, so the AI cannot skip the UI and call them as chat tools. The UI calls these helpers when the shopper interacts with its forms and buttons:

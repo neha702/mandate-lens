@@ -6,6 +6,8 @@ import com.emeralds.mandatelens.agentpulse.api.MerchantOperationRequests;
 import com.emeralds.mandatelens.merchant.cart.model.Cart;
 import com.emeralds.mandatelens.merchant.cart.model.CartLine;
 import com.emeralds.mandatelens.merchant.integration.storesync.repository.StoreSyncOrderRepository.GuardContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -20,6 +22,7 @@ import java.util.UUID;
 /** Calls Mandate Lens over HTTP for decisions and reports the merchant's actual result. */
 @Service
 public class StoreSyncGuardService {
+    private static final Logger logger = LoggerFactory.getLogger(StoreSyncGuardService.class);
     private final RestClient client;
     private final String merchantId;
     private final String baseUrl;
@@ -54,8 +57,14 @@ public class StoreSyncGuardService {
         try {
             decision = GuardDecision.valueOf(response.path("decision").asText());
         } catch (IllegalArgumentException exception) {
+            logger.error("Mandate Lens checkout response had an unknown decision cartId={} journeyId={} operationId={} decision={}",
+                    cartId, context.journeyId(), operationId, response.path("decision").asText());
             throw new GuardIntegrationException("Mandate Lens returned an unknown checkout decision.");
         }
+        logger.info("Mandate Lens checkout decision parsed cartId={} journeyId={} operationId={} decision={} decisionId={} reasonCount={} ruleCount={}",
+                cartId, context.journeyId(), operationId, decision, response.path("decisionId").asText(null),
+                response.path("reasons").isArray() ? response.path("reasons").size() : 0,
+                response.path("ruleResults").isArray() ? response.path("ruleResults").size() : 0);
         return new CheckoutGuardResult(operationId, decision.name(), response);
     }
 
@@ -105,23 +114,50 @@ public class StoreSyncGuardService {
     private JsonNode requestDecision(String cartId, GuardContext context, String action, Cart current,
                                      Cart proposed, String proposedCountry) {
         if (proposedCountry == null || proposedCountry.isBlank()) {
+            logger.warn("Mandate Lens decision request rejected action={} cartId={} reason=SHIPPING_COUNTRY_MISSING",
+                    action, cartId);
             throw new GuardIntegrationException("Shipping country is required for the Mandate Lens check.");
         }
-        validateContext(context);
+        try {
+            validateContext(context);
+        } catch (GuardIntegrationException exception) {
+            logger.warn("Mandate Lens decision request rejected action={} cartId={} reason=JOURNEY_CONTEXT_MISSING",
+                    action, cartId);
+            throw exception;
+        }
+        String correlationId = "storesync:" + cartId + ":" + UUID.randomUUID();
         var request = new MerchantOperationRequests.Check(
                 merchantId, context.journeyId(), cartId, action,
-                "storesync:" + cartId + ":" + UUID.randomUUID(),
+                correlationId,
                 toRequestCart(current), toRequestCart(proposed), proposedCountry);
+        long startedAt = System.nanoTime();
+        logger.info("Mandate Lens decision request started action={} merchantId={} journeyId={} cartId={} correlationId={} currentTotal={} proposedTotal={} currency={} currentItems={} proposedItems={} shippingCountry={}",
+                action, merchantId, context.journeyId(), cartId, correlationId, current.subtotal(), proposed.subtotal(),
+                proposed.currency(), current.items().size(), proposed.items().size(), proposedCountry);
         JsonNode response;
         try {
             response = client.post().uri("/api/v1/merchant-operations/check")
                     .body(request).retrieve().body(JsonNode.class);
         } catch (RestClientException exception) {
+            Integer httpStatus = exception instanceof RestClientResponseException responseException
+                    ? responseException.getStatusCode().value() : null;
+            logger.error("Mandate Lens decision request failed action={} journeyId={} cartId={} correlationId={} httpStatus={} durationMs={} errorType={}",
+                    action, context.journeyId(), cartId, correlationId, httpStatus,
+                    (System.nanoTime() - startedAt) / 1_000_000, exception.getClass().getSimpleName(), exception);
             throw unavailable("Mandate Lens could not evaluate this cart action.", exception);
         }
         if (response == null || response.path("operationId").asText().isBlank()) {
+            logger.error("Mandate Lens decision response incomplete action={} journeyId={} cartId={} correlationId={} durationMs={} responseWasNull={}",
+                    action, context.journeyId(), cartId, correlationId,
+                    (System.nanoTime() - startedAt) / 1_000_000, response == null);
             throw new GuardIntegrationException("Mandate Lens returned an incomplete decision.");
         }
+        logger.info("Mandate Lens decision response received action={} journeyId={} cartId={} correlationId={} operationId={} decisionId={} decision={} reasonCount={} ruleCount={} durationMs={}",
+                action, context.journeyId(), cartId, correlationId, response.path("operationId").asText(),
+                response.path("decisionId").asText(null), response.path("decision").asText("UNKNOWN"),
+                response.path("reasons").isArray() ? response.path("reasons").size() : 0,
+                response.path("ruleResults").isArray() ? response.path("ruleResults").size() : 0,
+                (System.nanoTime() - startedAt) / 1_000_000);
         return response;
     }
 

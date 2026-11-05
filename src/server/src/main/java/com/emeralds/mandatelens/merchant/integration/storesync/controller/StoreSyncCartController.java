@@ -9,6 +9,8 @@ import com.emeralds.mandatelens.merchant.integration.storesync.service.StoreSync
 import com.emeralds.mandatelens.merchant.integration.storesync.service.StoreSyncGuardService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -31,6 +33,7 @@ import java.util.NoSuchElementException;
 })
 @RequestMapping("/merchant-cart")
 public class StoreSyncCartController {
+    private static final Logger logger = LoggerFactory.getLogger(StoreSyncCartController.class);
     private final StoreSyncCartService cartService;
 
     public StoreSyncCartController(StoreSyncCartService cartService) {
@@ -115,17 +118,26 @@ public class StoreSyncCartController {
     /** Run Guard's final cart review without creating a payment order. */
     @PostMapping("/{cartId}/checkout-preview")
     public StoreSyncCartService.CheckoutPreviewResponse previewCheckout(@PathVariable String cartId) {
+        logger.info("HTTP checkout-preview received cartId={}", cartId);
         try {
-            return cartService.previewCheckout(cartId);
+            StoreSyncCartService.CheckoutPreviewResponse result = cartService.previewCheckout(cartId);
+            logger.info("HTTP checkout-preview completed cartId={} journeyId={} decision={} operationId={}",
+                    cartId, result.journeyId(), result.decision(), result.operationId());
+            return result;
         } catch (NoSuchElementException exception) {
+            logger.warn("HTTP checkout-preview returned 404 cartId={} reason={}", cartId, exception.getMessage());
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage());
         } catch (StoreSyncGuardService.GuardDecisionDeniedException exception) {
+            logger.warn("HTTP checkout-preview returned 409 cartId={} reason={}", cartId, exception.getMessage());
             throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage());
         } catch (StoreSyncGuardService.GuardIntegrationException exception) {
+            logger.error("HTTP checkout-preview returned 503 cartId={} reason={}", cartId, exception.getMessage(), exception);
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
         } catch (IllegalStateException exception) {
+            logger.warn("HTTP checkout-preview returned 409 cartId={} reason={}", cartId, exception.getMessage());
             throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage());
         } catch (IllegalArgumentException exception) {
+            logger.warn("HTTP checkout-preview returned 400 cartId={} reason={}", cartId, exception.getMessage());
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage());
         }
     }
