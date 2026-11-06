@@ -1,5 +1,7 @@
+const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+
 async function request(path) {
-  const response = await fetch(path, { headers: { Accept: "application/json" } });
+  const response = await fetch(`${API_URL}${path}`, { headers: { Accept: "application/json" } });
   const body = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(body?.detail || body?.message || body?.error || `Mandate Lens returned HTTP ${response.status}.`);

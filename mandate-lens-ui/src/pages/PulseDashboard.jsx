@@ -57,7 +57,7 @@ function PulseDashboard() {
       setSelectedId((current) => rows?.some((journey) => journey.journeyId === current)
         ? current : rows?.[0]?.journeyId || "");
     } catch (loadError) {
-      setError(`${loadError.message} Check that the Mandate Lens API is running at http://localhost:8081 and that this merchant ID has journey data.`);
+      setError(`${loadError.message} Check the Mandate Lens API URL and that this merchant ID has journey data.`);
       setJourneys([]);
     } finally {
       setLoading(false);

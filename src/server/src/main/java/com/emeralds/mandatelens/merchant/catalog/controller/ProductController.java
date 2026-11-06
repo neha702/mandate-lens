@@ -13,7 +13,8 @@ import java.util.List;
 @CrossOrigin(
         origins = {
                 "http://localhost:5173",
-                "https://mandate-lens-store.onrender.com"
+                "https://mandate-lens-store.onrender.com",
+                "${merchant.storefront.origin:http://localhost:5173}"
         }
 )
 @RestController
