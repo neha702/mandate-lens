@@ -122,9 +122,18 @@ public class StoreSyncCartController {
         logger.info("HTTP checkout-preview received cartId={}", cartId);
         try {
             StoreSyncCartService.CheckoutPreviewResponse result = cartService.previewCheckout(cartId);
-            logger.info("HTTP checkout-preview completed cartId={} journeyId={} decision={} operationId={}",
-                    cartId, result.journeyId(), result.decision(), result.operationId());
+            logger.info("HTTP checkout-preview completed cartId={} journeyId={} decision={} operationId={} paymentMethodType={} approvalUrlPresent={}",
+                    cartId, result.journeyId(), result.decision(), result.operationId(),
+                    result.paymentMethodType(), result.approvalUrl() != null);
             return result;
+        } catch (PayPalOrdersClient.PayPalNotConfiguredException exception) {
+            logger.error("HTTP checkout-preview could not create PayPal order: cartId={} reason={}",
+                    cartId, exception.getMessage());
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
+        } catch (PayPalOrdersClient.PayPalGatewayException exception) {
+            logger.error("HTTP checkout-preview PayPal order creation failed: cartId={} reason={}",
+                    cartId, exception.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, exception.getMessage());
         } catch (NoSuchElementException exception) {
             logger.warn("HTTP checkout-preview returned 404 cartId={} reason={}", cartId, exception.getMessage());
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage());

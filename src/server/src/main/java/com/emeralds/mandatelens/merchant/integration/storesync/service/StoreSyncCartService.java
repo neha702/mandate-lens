@@ -194,7 +194,7 @@ public class StoreSyncCartService {
                 orderRepository.findOrder(cartId).orElse(null), issues);
     }
 
-    /** Guard-only checkout review. No order or payment is created here. */
+    /** Guard review; in Sandbox mode, create the PayPal approval order only after ALLOW. */
     public CheckoutPreviewResponse previewCheckout(String cartId) {
         logger.info("Store Sync checkout preview received: cartId={}", cartId);
         if (orderRepository.findCompletedCart(cartId).isPresent()) {
@@ -230,10 +230,13 @@ public class StoreSyncCartService {
         if (context.checkoutOperationId() != null) {
             logger.info("Store Sync checkout preview reused pending Guard approval: cartId={} journeyId={} operationId={}",
                     cartId, context.journeyId(), context.checkoutOperationId());
+            StoreSyncOrderRepository.OrderState order = paypalSandboxEnabled
+                    ? ensurePayPalApprovalOrder(cart, details) : null;
             return new CheckoutPreviewResponse(context.checkoutOperationId(), cartId, context.journeyId(),
                     cart.subtotal(), cart.currency(), "ALLOW",
                     "This cart already has a Guard review awaiting the shopper's decision.",
-                    context.checkoutGuardResult());
+                    context.checkoutGuardResult(), paymentMethodType(order),
+                    order == null ? null : order.orderId(), order == null ? null : order.approvalUrl());
         }
         JsonNode savedCheckoutResult = context.checkoutGuardResult();
         if (savedCheckoutResult != null && !savedCheckoutResult.isNull() && !savedCheckoutResult.isMissingNode()) {
@@ -242,7 +245,7 @@ public class StoreSyncCartService {
                     cartId, context.journeyId(), decision);
             return new CheckoutPreviewResponse(null, cartId, context.journeyId(), cart.subtotal(),
                     cart.currency(), decision, "Showing the latest Guard result for this unchanged cart.",
-                    savedCheckoutResult);
+                    savedCheckoutResult, null, null, null);
         }
         logger.info("Store Sync checkout preview has no saved Guard result; requesting a fresh checkout decision: cartId={} journeyId={} savedResultIsJsonNull={}",
                 cartId, context.journeyId(), savedCheckoutResult != null && savedCheckoutResult.isNull());
@@ -260,18 +263,48 @@ public class StoreSyncCartService {
                 cartId, context.journeyId(), guardResult.decision(), operationId);
         orderRepository.saveGuardContext(cartId, new GuardContext(context.journeyId(), context.mandateId(),
                 context.deferPaymentUntilApproval(), operationId, guardResult.details()));
+        StoreSyncOrderRepository.OrderState order = operationId != null && paypalSandboxEnabled
+                ? ensurePayPalApprovalOrder(cart, details) : null;
         logger.info("Store Sync checkout result saved: cartId={} journeyId={} operationId={} decision={} pendingApproval={} guardDetailsPresent={}",
                 cartId, context.journeyId(), operationId, guardResult.decision(), operationId != null,
                 guardResult.details() != null && !guardResult.details().isNull());
         return new CheckoutPreviewResponse(operationId, cartId, context.journeyId(), cart.subtotal(),
                 cart.currency(), guardResult.decision(),
                 "ALLOW".equals(guardResult.decision())
-                        ? "Guard allowed this cart. Waiting for shopper approval; no payment has happened."
+                        ? (order == null
+                            ? "Guard allowed this cart. Waiting for shopper approval; no payment has happened."
+                            : "Guard allowed this cart. Open the PayPal Sandbox approval link to continue; payment is not captured yet.")
                         : "Guard blocked this cart. Review the reasons and update the cart before trying again.",
-                guardResult.details());
+                guardResult.details(), paymentMethodType(order),
+                order == null ? null : order.orderId(), order == null ? null : order.approvalUrl());
     }
 
-    /** Simulated MCP checkout settlement after the shopper explicitly approves the reviewed cart. */
+    private StoreSyncOrderRepository.OrderState ensurePayPalApprovalOrder(
+            Cart cart, StoreSyncOrderRepository.CartDetails details) {
+        StoreSyncOrderRepository.OrderState existing = orderRepository.findOrder(cart.id()).orElse(null);
+        if (existing != null) {
+            ensurePaymentModeMatches(existing);
+            if (isDemoOrder(existing) || existing.approvalUrl() == null || existing.approvalUrl().isBlank()) {
+                throw new IllegalStateException("This cart does not have a PayPal Sandbox approval link. Start a new cart in Sandbox mode.");
+            }
+            return existing;
+        }
+        StoreSyncOrderRepository.OrderState created = createPaymentOrder(cart, details);
+        if (isDemoOrder(created) || created.approvalUrl() == null || created.approvalUrl().isBlank()) {
+            throw new PayPalOrdersClient.PayPalGatewayException("PayPal did not return an order approval link.");
+        }
+        orderRepository.saveOrder(cart.id(), created);
+        logger.info("PayPal approval order prepared after Guard ALLOW: cartId={} orderId={}",
+                cart.id(), created.orderId());
+        return created;
+    }
+
+    private String paymentMethodType(StoreSyncOrderRepository.OrderState order) {
+        if (order != null) return isDemoOrder(order) ? "demo" : "paypal";
+        return paypalSandboxEnabled ? "paypal" : "demo";
+    }
+
+    /** Simulated MCP checkout settlement. PayPal Sandbox approval is completed through the storefront return flow. */
     public CheckoutApprovalResponse approveCheckout(String cartId, CheckoutApprovalRequest request) {
         if (request == null || request.operationId() == null || request.operationId().isBlank()) {
             throw new IllegalArgumentException("operationId is required from the checkout review.");
@@ -316,6 +349,14 @@ public class StoreSyncCartService {
         agentGuard.reportResult(request.operationId(), context, cartId, "PAYMENT_FAILED", "FAILED",
                 cart.subtotal(), cart.currency(), null, "SHOPPER_DECLINED",
                 "Shopper declined checkout; no payment was attempted.", null, null, List.of());
+        if (paypalSandboxEnabled) {
+            StoreSyncOrderRepository.OrderState order = orderRepository.findOrder(cartId).orElse(null);
+            if (order != null && !isDemoOrder(order)) {
+                orderRepository.cancelPendingOrder(cartId, order.orderId());
+                logger.info("PayPal Sandbox approval order cancelled locally after shopper decline: cartId={} orderId={}",
+                        cartId, order.orderId());
+            }
+        }
         orderRepository.saveGuardContext(cartId, new GuardContext(context.journeyId(), context.mandateId(),
                 context.deferPaymentUntilApproval()));
         return new CheckoutApprovalResponse("DECLINED", cartId, null,
@@ -348,7 +389,19 @@ public class StoreSyncCartService {
                 .orElseThrow(() -> new IllegalStateException("Cart has no journey-to-mandate mapping."));
         logger.info("Store Sync checkout started: cartId={} total={} currency={} itemCount={}",
                 cartId, cart.subtotal(), cart.currency(), cart.items().size());
-        String operationId = agentGuard.checkCheckout(cartId, guardContext, cart, country(details));
+        String operationId;
+        if (guardContext.checkoutOperationId() != null) {
+            String savedDecision = guardContext.checkoutGuardResult() == null ? "ALLOW"
+                    : guardContext.checkoutGuardResult().path("decision").asText("UNKNOWN");
+            if (!"ALLOW".equalsIgnoreCase(savedDecision)) {
+                throw new IllegalStateException("The saved Guard checkout review is not an ALLOW decision.");
+            }
+            operationId = guardContext.checkoutOperationId();
+            logger.info("Store Sync checkout reusing approved Guard review: cartId={} journeyId={} operationId={}",
+                    cartId, guardContext.journeyId(), operationId);
+        } else {
+            operationId = agentGuard.checkCheckout(cartId, guardContext, cart, country(details));
+        }
 
         PayPalOrdersClient.CaptureResult capture;
         if (isDemoOrder(order)) {
@@ -360,6 +413,8 @@ public class StoreSyncCartService {
                     cartId, cart.subtotal(), cart.currency(), exception.getClass().getSimpleName(), exception);
             reportFailure(operationId, guardContext, cartId, "PAYMENT_FAILED", cart, order.orderId(),
                     "PAYMENT_ERROR", exception.getMessage(), List.of(), exception);
+            orderRepository.saveGuardContext(cartId, new GuardContext(guardContext.journeyId(),
+                    guardContext.mandateId(), guardContext.deferPaymentUntilApproval()));
             if (exception instanceof PayPalOrdersClient.PayPalGatewayException gatewayException
                     && gatewayException.httpStatus() == 422) {
                 StoreSyncCartResponse.ValidationIssue paymentIssue = new StoreSyncCartResponse.ValidationIssue(
@@ -376,6 +431,8 @@ public class StoreSyncCartService {
                 cart.subtotal(), cart.currency(), order.orderId(), null, null,
                 isDemoOrder(order) ? null : order.orderId(),
                 isDemoOrder(order) ? null : capture.captureId(), List.of());
+        orderRepository.saveGuardContext(cartId, new GuardContext(guardContext.journeyId(),
+                guardContext.mandateId(), guardContext.deferPaymentUntilApproval()));
         logger.info("Store Sync checkout completed: cartId={} total={} currency={}",
                 cartId, cart.subtotal(), cart.currency());
         return response;
@@ -598,7 +655,8 @@ public class StoreSyncCartService {
 
     public record CheckoutPreviewResponse(String operationId, String cartId, String journeyId,
                                           BigDecimal total, String currency, String decision,
-                                          String message, JsonNode guardResult) { }
+                                          String message, JsonNode guardResult, String paymentMethodType,
+                                          String orderId, String approvalUrl) { }
     public record CheckoutApprovalRequest(String operationId, boolean approved) { }
     public record CheckoutApprovalResponse(String status, String cartId, String orderId, String message) { }
 }

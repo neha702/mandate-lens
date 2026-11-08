@@ -85,7 +85,7 @@ This path calls PayPal Orders v2 to create and capture an order. It requires Pay
 
 In the PayPal Developer Dashboard, choose Sandbox mode, copy the REST app Client ID and Secret from **Apps & Credentials**, and use a **personal Sandbox account** to approve the payment in the browser. The app secret stays on the Spring Boot server in `.env`; the React page never receives it. PayPal Sandbox creates test transactions between fictional buyer/seller accounts, so no real funds move. See [PayPal's Sandbox guide](https://developer.paypal.com/sandbox-testing/overview/) and [Sandbox account guide](https://developer.paypal.com/sandbox-testing/accounts).
 
-The PacePoint storefront now exercises these same Store Sync endpoints: it creates a cart when the first product is added, reads a saved cart on reload, replaces the cart as quantities or shipping details change, and calls checkout after the buyer returns from PayPal approval. For direct API checks, continue with the HTTP examples below.
+The PacePoint storefront exercises these Store Sync endpoints: it creates a cart when the first product is added, reads a saved cart on reload, replaces the cart as quantities or shipping details change, and calls checkout after the buyer returns from PayPal approval. The MCP flow also supports Sandbox: its final Guard review creates the approval order only after ALLOW, and the buyer returns to this storefront for order-token validation and capture. After the storefront finishes capture, return to the MCP panel and refresh payment status. For direct API checks, continue with the HTTP examples below.
 
 ```properties
 PAYPAL_ORDERS_BASE_URL=https://api-m.sandbox.paypal.com

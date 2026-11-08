@@ -13,7 +13,7 @@ This React application contains the PacePoint demo shop only. The Pulse journey 
 
    The ignored root `.env` is loaded by this script. Spring Boot does not read that file automatically.
 
-3. Keep `PAYPAL_SANDBOX_ENABLED=false` in the root `.env` while Sandbox credentials are being checked. This simulates checkout locally; no PayPal credentials are needed. Restart the backend after changing `.env`.
+3. Keep `PAYPAL_SANDBOX_ENABLED=false` in the root `.env` for simulated checkout. To use PayPal Sandbox from the storefront or MCP checkout, set it to `true` and configure the Sandbox REST app credentials and return/cancel URLs as described in [../docs/local-e2e.md](../docs/local-e2e.md). Restart the backend after changing `.env`.
 
 4. In a second PowerShell terminal, run:
 
@@ -43,4 +43,4 @@ The backend owns cart prices, Guard checks, PayPal credentials, and order captur
 
 With `PAYPAL_SANDBOX_ENABLED=false`, the UI labels checkout as a local demo. The backend still performs Guard checks but does not call PayPal; completion is simulated and no money moves.
 
-PayPal Sandbox checkout is not part of the current demo path. When the team has verified Sandbox credentials and is ready to test it, see [../docs/local-e2e.md](../docs/local-e2e.md) for the optional setup. Never put Live credentials in the local demo configuration.
+With PayPal Sandbox enabled, the backend creates Orders v2 orders and returns PayPal's approval URL. The storefront redirects the buyer to PayPal, then captures the approved order after PayPal returns. The MCP shop uses the same Merchant order and capture path after Guard allows checkout. Sandbox uses test accounts; never put Live credentials in the local demo configuration.

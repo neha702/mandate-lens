@@ -15,7 +15,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from fastmcp import FastMCP, FastMCPApp
-from prefab_ui.actions import SetState
+from prefab_ui.actions import OpenLink, SetState
 from prefab_ui.actions.mcp import CallTool
 from prefab_ui.app import PrefabApp
 from prefab_ui.components import (
@@ -637,7 +637,10 @@ def preview_demo_checkout(session_id: str = "") -> dict:
         result = merchant_request("POST", f"/merchant-cart/{cart['id']}/checkout-preview", {})
     except RuntimeError as error:
         session["checkoutOperationId"] = None
-        logger.exception("Checkout Guard preview request failed: sessionId=%s cartId=%s",
+        session["checkoutApprovalUrl"] = None
+        session["checkoutOrderId"] = None
+        session["checkoutGuardResult"] = None
+        logger.exception("Checkout preview request failed: sessionId=%s cartId=%s",
                          session_id, cart.get("id"))
         logger.error("Checkout preview failed sessionId=%s journeyId=%s cartId=%s durationMs=%.1f error=%s",
                      session_id, session.get("journeyId"), cart.get("id"),
@@ -646,14 +649,18 @@ def preview_demo_checkout(session_id: str = "") -> dict:
                 "checkoutChecked": False, "checkoutOperationId": None, "operationId": None,
                 "guardResult": None,
                 "cartMessage": None,
-                "message": "Mandate Lens did not return a checkout decision. See the checkout error below.",
+                "message": "Merchant could not finish the Guard review or prepare payment. See the checkout error below.",
                 "session": session, "cart": current_cart(session_id)}
     decision = str(result.get("decision", "UNKNOWN")).upper()
     session["checkoutOperationId"] = result.get("operationId") if decision == "ALLOW" else None
+    session["checkoutApprovalUrl"] = result.get("approvalUrl") if decision == "ALLOW" else None
+    session["checkoutOrderId"] = result.get("orderId") if decision == "ALLOW" else None
+    session["checkoutGuardResult"] = result.get("guardResult")
     guard_result = result.get("guardResult")
-    logger.info("Checkout preview response sessionId=%s journeyId=%s cartId=%s decision=%s operationId=%s guardResultType=%s guardResultKeys=%s reasonCount=%s ruleCount=%s durationMs=%.1f responseKeys=%s",
+    logger.info("Checkout preview response sessionId=%s journeyId=%s cartId=%s decision=%s operationId=%s paymentOrderId=%s approvalUrlPresent=%s guardResultType=%s guardResultKeys=%s reasonCount=%s ruleCount=%s durationMs=%.1f responseKeys=%s",
                 session_id, session.get("journeyId"), cart.get("id"), decision,
-                result.get("operationId"), type(guard_result).__name__ if guard_result is not None else None,
+                result.get("operationId"), result.get("orderId"), bool(result.get("approvalUrl")),
+                type(guard_result).__name__ if guard_result is not None else None,
                 sorted(guard_result.keys()) if isinstance(guard_result, dict) else None,
                 len(guard_result.get("reasons", [])) if isinstance(guard_result, dict) else None,
                 len(guard_result.get("ruleResults", [])) if isinstance(guard_result, dict) else None,
@@ -730,8 +737,73 @@ def approve_demo_checkout(session_id: str = "") -> dict:
     except RuntimeError:
         pass
     return {"ok": True, **result, "session": session, "purchaseCompleted": True,
+            "paymentMethodType": "demo",
             "storefrontProducts": storefront_products, "cart": current_cart(session_id),
             "message": "Purchase complete. This shopping session has ended. Browse the full Merchant catalog below."}
+
+
+@shop.tool(model=False)
+def refresh_paypal_checkout_status(session_id: str = "") -> dict:
+    """Refresh Merchant state after the shopper approves a PayPal Sandbox order in the browser."""
+    global ACTIVE_SESSION_ID
+    try:
+        session_id, session = resolve_session(session_id)
+    except RuntimeError as error:
+        logger.warning("PayPal checkout status refresh rejected sessionId=%s error=%s",
+                       session_id or ACTIVE_SESSION_ID, error)
+        return {"ok": False, "message": str(error)}
+    cart = CARTS.get(session_id)
+    if not session.get("checkoutOperationId") or not session.get("checkoutApprovalUrl"):
+        return {"ok": False, "message": "Run the final Guard check and open the PayPal approval link first.",
+                "session": session, "cart": current_cart(session_id)}
+    if not cart or not cart.get("id"):
+        return {"ok": False, "message": "The Merchant cart is not available for payment status verification.",
+                "session": session}
+
+    try:
+        refreshed_cart = merchant_request("GET", f"/merchant-cart/{cart['id']}")
+    except RuntimeError as error:
+        logger.exception("PayPal checkout status refresh failed sessionId=%s journeyId=%s cartId=%s",
+                         session_id, session.get("journeyId"), cart.get("id"))
+        return {"ok": False, "paymentPending": True, "message": str(error),
+                "session": session, "cart": current_cart(session_id),
+                "checkoutChecked": True, "operationId": session.get("checkoutOperationId"),
+                "approvalUrl": session.get("checkoutApprovalUrl"),
+                "guardResult": session.get("checkoutGuardResult")}
+
+    CARTS[session_id] = refreshed_cart
+    if str(refreshed_cart.get("status", "")).upper() != "COMPLETED":
+        logger.info("PayPal checkout still pending sessionId=%s journeyId=%s cartId=%s status=%s",
+                    session_id, session.get("journeyId"), cart.get("id"), refreshed_cart.get("status"))
+        return {"ok": False, "paymentPending": True,
+                "message": "Merchant has not recorded a completed PayPal payment yet. Finish approval in the PayPal tab, wait for PayPal to return to the storefront, then check again.",
+                "session": session, "cart": current_cart(session_id),
+                "checkoutChecked": True, "operationId": session.get("checkoutOperationId"),
+                "approvalUrl": session.get("checkoutApprovalUrl"),
+                "guardResult": session.get("checkoutGuardResult")}
+
+    session["completed"] = True
+    session["checkoutOperationId"] = None
+    session["checkoutApprovalUrl"] = None
+    order_id = ((refreshed_cart.get("payment_confirmation") or {}).get("merchant_order_number")
+                or session.get("checkoutOrderId"))
+    logger.info("PayPal Sandbox checkout confirmed sessionId=%s journeyId=%s cartId=%s orderId=%s",
+                session_id, session.get("journeyId"), cart.get("id"), order_id)
+    if ACTIVE_SESSION_ID == session_id:
+        ACTIVE_SESSION_ID = None
+    storefront_products = []
+    try:
+        products = fetch_footwear_products()
+        images = preload_product_images(products)
+        storefront_products = [{**product, "image": image}
+                               for product, image in zip(products, images)]
+    except RuntimeError:
+        logger.exception("PayPal checkout completed but storefront catalog refresh failed sessionId=%s cartId=%s",
+                         session_id, cart.get("id"))
+    return {"ok": True, "purchaseCompleted": True, "paymentMethodType": "paypal", "orderId": order_id,
+            "session": session, "storefrontProducts": storefront_products,
+            "cart": current_cart(session_id),
+            "message": "PayPal Sandbox payment was captured and Mandate Lens recorded the completed journey. No real money was moved."}
 
 
 @shop.tool(model=False)
@@ -765,6 +837,9 @@ def decline_demo_checkout(session_id: str = "") -> dict:
         return {"ok": False, "message": str(error), "session": session,
                 "cart": current_cart(session_id)}
     session["checkoutOperationId"] = None
+    session["checkoutApprovalUrl"] = None
+    session["checkoutOrderId"] = None
+    session["checkoutGuardResult"] = None
     logger.info("Checkout decline completed sessionId=%s journeyId=%s cartId=%s operationId=%s responseStatus=%s durationMs=%.1f",
                 session_id, session.get("journeyId"), cart.get("id"), operation_id,
                 result.get("status"), (time.perf_counter() - started) * 1000)
@@ -1017,9 +1092,24 @@ def open_shoe_shop(query: str = "", max_amount: float | None = None,
                                                 Text("Rule results")
                                                 with ForEach("result.guardResult.ruleResults") as rule:
                                                     Text(f"{rule.ruleId} · {rule.result}: {rule.message}")
-                                Button("Approve & pay (demo)", variant="success",
-                                       disabled=Rx("!result.operationId"), onClick=CallTool(
-                                           approve_demo_checkout, onSuccess=SetState("result", RESULT)))
+                                with If("result.checkoutChecked && result.operationId && result.approvalUrl"):
+                                    with Card(css_class="border-blue-300 bg-blue-50 text-blue-950"):
+                                        with CardHeader():
+                                            Badge("PAYPAL SANDBOX", variant="warning")
+                                            Heading("Approve payment with PayPal", level=3)
+                                            Text("PayPal opens in a new tab. After approval, PayPal returns to the Merchant storefront, which captures the payment. Come back here and refresh the status.")
+                                        with CardContent():
+                                            with Column(gap=3):
+                                                Button("Open PayPal Sandbox approval", variant="success",
+                                                       onClick=OpenLink("{{ result.approvalUrl }}"))
+                                                Button("I approved in PayPal — check payment status", variant="outline",
+                                                       onClick=CallTool(refresh_paypal_checkout_status,
+                                                                        onSuccess=SetState("result", RESULT)))
+                                                with If("result.paymentPending"):
+                                                    Text(Rx("result.message"), css_class="text-sm text-muted-foreground")
+                                with If("result.checkoutChecked && result.operationId && !result.approvalUrl"):
+                                    Button("Approve & pay (demo)", variant="success", onClick=CallTool(
+                                        approve_demo_checkout, onSuccess=SetState("result", RESULT)))
                                 Button("Decline checkout", variant="outline",
                                        disabled=Rx("!result.operationId"), onClick=CallTool(
                                            decline_demo_checkout, onSuccess=SetState("result", RESULT)))
@@ -1029,7 +1119,10 @@ def open_shoe_shop(query: str = "", max_amount: float | None = None,
                             css_class="min-h-[75vh] w-full text-center animate-in fade-in zoom-in duration-700"):
                     Text("✓", css_class="text-7xl font-bold text-emerald-500 animate-bounce")
                     Badge("PAYMENT SUCCESSFUL", variant="success")
-                    Heading("Your demo purchase is complete!", level=1)
+                    with If("result.paymentMethodType == 'paypal'"):
+                        Heading("Your PayPal Sandbox purchase is complete!", level=1)
+                    with If("result.paymentMethodType != 'paypal'"):
+                        Heading("Your demo purchase is complete!", level=1)
                     Text(Rx("result.message"), css_class="text-muted-foreground")
                     Text("Mandate Lens recorded the successful journey. No real money was moved.",
                          css_class="text-muted-foreground")

@@ -1,6 +1,6 @@
 # Baby-step guide: test the Merchant MCP demo
 
-This guide walks through a successful shopping demo with Cursor or VS Code, then a deliberate AgentGuard block using MCP Inspector. Everything is local and uses demo data. The MCP purchase flow simulates payment; it does not move money or create a real AP2 authorization.
+This guide walks through a successful shopping demo with Cursor or VS Code, then a deliberate AgentGuard block using MCP Inspector. The default flow is local and uses demo data. PayPal Sandbox is an optional checkout mode that uses test accounts and does not move real funds; the shopper budget is still a simulated constraint, not a verified AP2 authorization.
 
 ## 1. What you will run
 
@@ -233,4 +233,4 @@ The summary lookup reads saved facts; the block is produced by the Inspector `ad
 
 ## Demo boundaries
 
-This is a local hackathon demonstration. The shopper budget form simulates consent and is not a signed AP2 mandate. The MCP purchase path records a simulated Merchant payment; PayPal Sandbox is not used here. The Guard block is a deterministic local policy decision, not a claim that a production authorization or payment network verified the shopper.
+This is a local hackathon demonstration. The shopper budget form simulates consent and is not a signed AP2 mandate. With PayPal Sandbox disabled, the MCP purchase path records a simulated Merchant payment. With Sandbox enabled, Guard must return ALLOW before the MCP flow creates a PayPal order; the buyer approves it in PayPal and Merchant captures it after the return. These are test transactions only. The Guard block is a deterministic local policy decision, not a claim that a production authorization or payment network verified the shopper.
