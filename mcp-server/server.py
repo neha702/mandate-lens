@@ -751,13 +751,15 @@ def refresh_paypal_checkout_status(session_id: str = "") -> dict:
     except RuntimeError as error:
         logger.warning("PayPal checkout status refresh rejected sessionId=%s error=%s",
                        session_id or ACTIVE_SESSION_ID, error)
-        return {"ok": False, "message": str(error)}
+        return {"ok": False, "paymentStatusChecked": True, "message": str(error)}
     cart = CARTS.get(session_id)
     if not session.get("checkoutOperationId") or not session.get("checkoutApprovalUrl"):
-        return {"ok": False, "message": "Run the final Guard check and open the PayPal approval link first.",
+        return {"ok": False, "paymentStatusChecked": True,
+                "message": "Run the final Guard check and open the PayPal approval link first.",
                 "session": session, "cart": current_cart(session_id)}
     if not cart or not cart.get("id"):
-        return {"ok": False, "message": "The Merchant cart is not available for payment status verification.",
+        return {"ok": False, "paymentStatusChecked": True,
+                "message": "The Merchant cart is not available for payment status verification.",
                 "session": session}
 
     try:
@@ -765,7 +767,7 @@ def refresh_paypal_checkout_status(session_id: str = "") -> dict:
     except RuntimeError as error:
         logger.exception("PayPal checkout status refresh failed sessionId=%s journeyId=%s cartId=%s",
                          session_id, session.get("journeyId"), cart.get("id"))
-        return {"ok": False, "paymentPending": True, "message": str(error),
+        return {"ok": False, "paymentStatusChecked": True, "paymentPending": True, "message": str(error),
                 "session": session, "cart": current_cart(session_id),
                 "checkoutChecked": True, "operationId": session.get("checkoutOperationId"),
                 "approvalUrl": session.get("checkoutApprovalUrl"),
@@ -775,7 +777,7 @@ def refresh_paypal_checkout_status(session_id: str = "") -> dict:
     if str(refreshed_cart.get("status", "")).upper() != "COMPLETED":
         logger.info("PayPal checkout still pending sessionId=%s journeyId=%s cartId=%s status=%s",
                     session_id, session.get("journeyId"), cart.get("id"), refreshed_cart.get("status"))
-        return {"ok": False, "paymentPending": True,
+        return {"ok": False, "paymentStatusChecked": True, "paymentPending": True,
                 "message": "Merchant has not recorded a completed PayPal payment yet. Finish approval in the PayPal tab, wait for PayPal to return to the storefront, then check again.",
                 "session": session, "cart": current_cart(session_id),
                 "checkoutChecked": True, "operationId": session.get("checkoutOperationId"),
@@ -800,7 +802,8 @@ def refresh_paypal_checkout_status(session_id: str = "") -> dict:
     except RuntimeError:
         logger.exception("PayPal checkout completed but storefront catalog refresh failed sessionId=%s cartId=%s",
                          session_id, cart.get("id"))
-    return {"ok": True, "purchaseCompleted": True, "paymentMethodType": "paypal", "orderId": order_id,
+    return {"ok": True, "paymentStatusChecked": True, "purchaseCompleted": True,
+            "paymentMethodType": "paypal", "orderId": order_id,
             "session": session, "storefrontProducts": storefront_products,
             "cart": current_cart(session_id),
             "message": "PayPal Sandbox payment was captured and Mandate Lens recorded the completed journey. No real money was moved."}
@@ -1107,6 +1110,13 @@ def open_shoe_shop(query: str = "", max_amount: float | None = None,
                                                                         onSuccess=SetState("result", RESULT)))
                                                 with If("result.paymentPending"):
                                                     Text(Rx("result.message"), css_class="text-sm text-muted-foreground")
+                                with If("result.paymentStatusChecked && !result.ok && !result.paymentPending"):
+                                    with Card(css_class="border-amber-300 bg-amber-50 text-amber-950"):
+                                        with CardHeader():
+                                            Badge("STATUS CHECK NEEDS ATTENTION", variant="warning")
+                                            Heading("Could not confirm payment", level=3)
+                                        with CardContent():
+                                            Text(Rx("result.message"))
                                 with If("result.checkoutChecked && result.operationId && !result.approvalUrl"):
                                     Button("Approve & pay (demo)", variant="success", onClick=CallTool(
                                         approve_demo_checkout, onSuccess=SetState("result", RESULT)))
