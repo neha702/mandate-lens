@@ -48,9 +48,16 @@ public class PayPalOrdersClient {
             throw new PayPalGatewayException("PayPal returned an empty order response.");
         }
         String approvalUrl = response.links() == null ? null : response.links().stream()
-                .filter(link -> "approve".equalsIgnoreCase(link.rel()))
+                // Orders using payment_source.paypal.experience_context can return
+                // payer-action instead of the legacy approve relation.
+                .filter(link -> link != null && link.href() != null && !link.href().isBlank()
+                        && ("approve".equalsIgnoreCase(link.rel())
+                        || "payer-action".equalsIgnoreCase(link.rel())))
                 .map(Link::href).findFirst().orElse(null);
-        logger.info("PayPal order created: cartId={} approvalUrlPresent={}", cartId, approvalUrl != null);
+        logger.info("PayPal order created: cartId={} approvalUrlPresent={} approvalRelations={}", cartId,
+                approvalUrl != null, response.links() == null ? List.of()
+                        : response.links().stream().filter(link -> link != null)
+                        .map(Link::rel).filter(java.util.Objects::nonNull).toList());
         return new OrderResult(response.id(), approvalUrl);
     }
 
