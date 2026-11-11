@@ -2,7 +2,11 @@
 
 Mandate Lens is a demo commerce system for checking agent-driven shopping actions against a shopper's budget, recording Guard decisions, and showing the resulting journey. **PacePoint** is the customer-facing shop brand. `STRIDEHUB` is its demo merchant ID used by APIs and saved journey records.
 
-## Project description
+## Demo video
+
+[Watch the Mandate Lens demo on YouTube](https://www.youtube.com/watch?v=mcv9rUT9QKo).
+
+## Project layout
 
 Mandate Lens demonstrates a safer agent-assisted shopping journey. A shopper asks an AI assistant to find products and provides a budget. The PacePoint shop presents the proposed items and requires the shopper to approve the selection. Merchant then sends the cart to Mandate Lens, where the deterministic demo Guard checks the budget and cart before checkout. The AgentPulse dashboard shows the recorded journey, decisions, and events. The documented end-to-end purchase uses PayPal Sandbox checkout. The demo makes the approval steps visible and keeps the shopper in control; it is not a production payment or authorization system.
 
