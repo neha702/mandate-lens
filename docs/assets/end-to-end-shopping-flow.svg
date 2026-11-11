@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1320" viewBox="0 0 1000 1320" role="img" aria-labelledby="title desc">
+  <title id="title">Mandate Lens end-to-end shopping flow</title>
+  <desc id="desc">The shopper requests products, approves a selection and a Guard-allowed checkout, approves a PayPal Sandbox order, then reviews the completed journey in AgentPulse. A denied Guard decision sends the shopper back to revise and resubmit the cart.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#52627a" />
+    </marker>
+    <style>
+      .title { font: 700 26px Arial, sans-serif; fill: #172033; }
+      .boxtext { font: 600 17px Arial, sans-serif; fill: #172033; text-anchor: middle; }
+      .small { font: 600 14px Arial, sans-serif; fill: #475569; }
+      .arrow { fill: none; stroke: #52627a; stroke-width: 2.5; marker-end: url(#arrow); }
+      .shopper { fill: #eaf2ff; stroke: #4782d2; }
+      .agent { fill: #f1eefe; stroke: #8065c9; }
+      .merchant { fill: #fff3df; stroke: #d89128; }
+      .guard { fill: #e8f7f0; stroke: #31966a; }
+      .paypal { fill: #fff0f1; stroke: #d34f5d; }
+      .pulse { fill: #eaf7fa; stroke: #318a9c; }
+      .shape { stroke-width: 2; rx: 12; }
+    </style>
+  </defs>
+
+  <rect width="1000" height="1320" fill="#ffffff" />
+  <text x="500" y="38" class="title" text-anchor="middle">Mandate Lens: PayPal Sandbox purchase flow</text>
+
+  <rect x="205" y="62" width="590" height="66" class="shape shopper" />
+  <text x="500" y="90" class="boxtext"><tspan x="500">Shopper enters a product request and budget</tspan><tspan x="500" dy="22">in the AI client</tspan></text>
+  <path d="M500 128 V151" class="arrow" />
+
+  <rect x="205" y="158" width="590" height="66" class="shape agent" />
+  <text x="500" y="198" class="boxtext">AI client opens PacePoint through MCP</text>
+  <path d="M500 224 V251" class="arrow" />
+
+  <rect x="205" y="258" width="590" height="66" class="shape shopper" />
+  <text x="500" y="286" class="boxtext"><tspan x="500">Shopper reviews the products and</tspan><tspan x="500" dy="22">approves the selection</tspan></text>
+  <path d="M500 324 V351" class="arrow" />
+
+  <rect x="205" y="358" width="590" height="66" class="shape merchant" />
+  <text x="500" y="386" class="boxtext"><tspan x="500">Merchant creates the shopping journey</tspan><tspan x="500" dy="22">and submits the proposed cart</tspan></text>
+  <path d="M500 424 V451" class="arrow" />
+
+  <rect x="205" y="458" width="590" height="66" class="shape guard" />
+  <text x="500" y="486" class="boxtext"><tspan x="500">Mandate Lens Guard evaluates the cart</tspan><tspan x="500" dy="22">and records its decision</tspan></text>
+  <path d="M500 524 V551" class="arrow" />
+
+  <polygon points="500,552 600,607 500,662 400,607" fill="#f5f7fa" stroke="#52627a" stroke-width="2" />
+  <text x="500" y="602" class="boxtext"><tspan x="500">Final Guard</tspan><tspan x="500" dy="21">decision?</tspan></text>
+
+  <path d="M400 607 H300" class="arrow" />
+  <text x="345" y="593" class="small" text-anchor="middle">NO</text>
+  <rect x="20" y="572" width="270" height="72" class="shape shopper" />
+  <text x="155" y="600" class="boxtext"><tspan x="155">Review reasons, revise</tspan><tspan x="155" dy="22">cart, and resubmit</tspan></text>
+  <path d="M155 572 V390 H195" class="arrow" />
+
+  <path d="M500 662 V691" class="arrow" />
+  <text x="518" y="682" class="small">ALLOW</text>
+  <rect x="205" y="698" width="590" height="66" class="shape merchant" />
+  <text x="500" y="738" class="boxtext">Merchant creates a PayPal Sandbox order</text>
+  <path d="M500 764 V791" class="arrow" />
+
+  <rect x="205" y="798" width="590" height="66" class="shape paypal" />
+  <text x="500" y="838" class="boxtext">Shopper approves with a Sandbox buyer account</text>
+  <path d="M500 864 V891" class="arrow" />
+
+  <rect x="205" y="898" width="590" height="66" class="shape paypal" />
+  <text x="500" y="926" class="boxtext"><tspan x="500">PayPal returns the browser</tspan><tspan x="500" dy="22">to the PacePoint storefront</tspan></text>
+  <path d="M500 964 V991" class="arrow" />
+
+  <rect x="205" y="998" width="590" height="66" class="shape merchant" />
+  <text x="500" y="1026" class="boxtext"><tspan x="500">Storefront validates the order;</tspan><tspan x="500" dy="22">Merchant captures it and records completion</tspan></text>
+  <path d="M500 1064 V1091" class="arrow" />
+
+  <rect x="205" y="1098" width="590" height="66" class="shape agent" />
+  <text x="500" y="1126" class="boxtext"><tspan x="500">Shopper refreshes payment status</tspan><tspan x="500" dy="22">in the MCP app</tspan></text>
+  <path d="M500 1164 V1191" class="arrow" />
+
+  <rect x="205" y="1198" width="590" height="66" class="shape pulse" />
+  <text x="500" y="1238" class="boxtext">AgentPulse displays the completed journey</text>
+</svg>
