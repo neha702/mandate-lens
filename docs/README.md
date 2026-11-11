@@ -4,17 +4,16 @@ This folder contains the maintained, shareable documentation for the repository.
 
 ## Current guides
 
-- [End-to-end shopping flow](end-to-end-shopping-flow.md) — run the services, test the MCP purchase path, and optionally complete a PayPal Sandbox checkout.
-- [Submission checklist](submission-checklist.md) — project description, tool attribution, functional demo, license, repository, and video requirements.
+- [Architecture overview](architecture.md) — component responsibilities, request flow, and data ownership.
+- [Run and end-to-end guide](end-to-end-shopping-flow.md) — clone and run each local service or connect to the hosted demo, then complete the MCP purchase path using PayPal Sandbox checkout.
 
-## Recommended documentation to add
+## Optional additions
 
-1. **Architecture overview** — service ownership, request flow, data ownership, and a small component diagram.
-2. **API reference** — endpoints, request/response examples, error meanings, and which service owns each route.
-3. **Local development** — prerequisites, database setup, environment variables, start commands, and ports.
-4. **Deployment and operations** — Render service names, root directories, build/start commands, environment-variable ownership, health checks, logs, and static-site rewrites.
-5. **Data model** — schema ownership, migrations, important identifiers, and retention/lifecycle rules.
-6. **Decision records** — short notes for choices with lasting impact, such as sharing a Maven module or database between services.
+Add these only if they help someone run, evaluate, or contribute to the project:
+
+- **Deployment and operations** — hosted service URLs, build/start commands, environment-variable ownership, health checks, logs, and static-site rewrites. Render-specific MCP notes currently live in [`mcp-server/README.md`](../mcp-server/README.md).
+- **API reference** — routes, request/response examples, error meanings, and the service that owns each route, if judges or contributors need to call APIs directly.
+- **Data model or decision records** — schema ownership, migration lifecycle, and decisions with lasting impact, if the architecture needs more detail than [`architecture.md`](architecture.md).
 
 Write one maintained page per subject. Link to the relevant source code and keep runnable examples in sync with the implementation. Never include credentials, personal machine paths, or copied secrets.
 
