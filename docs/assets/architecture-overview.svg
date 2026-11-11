@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="650" viewBox="0 0 1100 650" role="img" aria-labelledby="title desc">
+  <title id="title">Mandate Lens architecture overview</title>
+  <desc id="desc">The shopper uses the AI client and PacePoint storefront. The AI client connects to the MCP server. The storefront and MCP server call Merchant, which calls Mandate Lens. AgentPulse reads journeys from Mandate Lens. Merchant and Mandate Lens share PostgreSQL. Merchant connects to PayPal Sandbox for checkout.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#52627a" />
+    </marker>
+    <style>
+      .heading { font: 700 25px Arial, sans-serif; fill: #172033; }
+      .label { font: 600 17px Arial, sans-serif; fill: #172033; text-anchor: middle; }
+      .sub { font: 14px Arial, sans-serif; fill: #475569; text-anchor: middle; }
+      .node { stroke-width: 2; rx: 12; }
+      .edge { fill: none; stroke: #52627a; stroke-width: 2.5; marker-end: url(#arrow); }
+      .optional { fill: none; stroke: #52627a; stroke-width: 2.5; stroke-dasharray: 8 6; marker-end: url(#arrow); }
+      .shopper { fill: #eaf2ff; stroke: #4782d2; }
+      .agent { fill: #f1eefe; stroke: #8065c9; }
+      .merchant { fill: #fff3df; stroke: #d89128; }
+      .mandate { fill: #e8f7f0; stroke: #31966a; }
+      .data { fill: #f1f5f9; stroke: #64748b; }
+      .paypal { fill: #fff0f1; stroke: #d34f5d; }
+      .pulse { fill: #eaf7fa; stroke: #318a9c; }
+    </style>
+  </defs>
+
+  <rect width="1100" height="650" fill="#ffffff" />
+  <text x="550" y="38" class="heading" text-anchor="middle">Mandate Lens architecture</text>
+
+  <rect x="30" y="100" width="160" height="75" class="node shopper" />
+  <text x="110" y="145" class="label">Shopper</text>
+
+  <rect x="245" y="45" width="190" height="75" class="node agent" />
+  <text x="340" y="78" class="label"><tspan x="340">AI client</tspan><tspan x="340" dy="21" class="sub">model supplied by client</tspan></text>
+
+  <rect x="500" y="45" width="190" height="75" class="node agent" />
+  <text x="595" y="78" class="label"><tspan x="595">MCP server</tspan><tspan x="595" dy="21" class="sub">FastMCP / Python</tspan></text>
+
+  <rect x="245" y="215" width="190" height="75" class="node shopper" />
+  <text x="340" y="248" class="label"><tspan x="340">PacePoint</tspan><tspan x="340" dy="21" class="sub">shop UI / React</tspan></text>
+
+  <rect x="500" y="315" width="190" height="85" class="node merchant" />
+  <text x="595" y="350" class="label"><tspan x="595">Merchant API</tspan><tspan x="595" dy="22" class="sub">catalog, carts, payment</tspan></text>
+
+  <rect x="805" y="315" width="250" height="85" class="node mandate" />
+  <text x="930" y="350" class="label"><tspan x="930">Mandate Lens API</tspan><tspan x="930" dy="22" class="sub">Guard decisions and journeys</tspan></text>
+
+  <rect x="805" y="485" width="250" height="75" class="node pulse" />
+  <text x="930" y="518" class="label"><tspan x="930">AgentPulse</tspan><tspan x="930" dy="21" class="sub">journey dashboard</tspan></text>
+
+  <rect x="500" y="485" width="190" height="75" class="node data" />
+  <text x="595" y="518" class="label"><tspan x="595">PostgreSQL</tspan><tspan x="595" dy="21" class="sub">shared local database</tspan></text>
+
+  <rect x="805" y="105" width="250" height="75" class="node paypal" />
+  <text x="930" y="138" class="label"><tspan x="930">PayPal Sandbox</tspan><tspan x="930" dy="21" class="sub">test checkout</tspan></text>
+
+  <path d="M190 118 H220 V82 H235" class="edge" />
+  <path d="M435 82 H490" class="edge" />
+  <path d="M190 157 H215 V252 H235" class="edge" />
+  <path d="M595 120 V285 H595 V305" class="edge" />
+  <path d="M435 252 H465 V357 H490" class="edge" />
+  <path d="M690 357 H795" class="edge" />
+  <path d="M930 400 V475" class="edge" />
+  <path d="M595 400 V475" class="edge" />
+  <path d="M805 385 H740 V522 H700" class="edge" />
+  <path d="M690 335 H740 V142 H795" class="optional" />
+
+  <text x="748" y="127" class="sub" text-anchor="middle">checkout</text>
+  <text x="550" y="625" class="sub">Merchant and Mandate Lens are separate Spring Boot processes in one Maven module.</text>
+</svg>

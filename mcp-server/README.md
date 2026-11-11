@@ -19,7 +19,7 @@ Start both Spring Boot services first: Merchant at `http://127.0.0.1:8080` and M
 
 The repository root has a `.cursor/mcp.json` file that points Cursor to the local endpoint. Start the Merchant API, Mandate Lens, and MCP server, then reload MCP servers in Cursor. For **“Show me running shoes,”** the agent calls `open_shoe_shop` in browse mode and the product cards appear; browsing creates no budget or cart. For a purchase with a stated budget, the shop UI searches the live Merchant catalog and shows the matching affordable selection for approval. For a purchase without a budget, it asks for the budget first; only after the shopper submits it does the UI search Merchant. Requests for **different models** show distinct shoes (one pair per model by default); a request for multiple **pairs** selects a shoe model and uses the requested quantity. The shopper approves the complete selection once before the simulated budget journey starts and Merchant/AgentGuard checks and adds the combined cart. The UI then requires a separate Guard checkout review before showing payment approval. That review displays the actual Mandate Lens decision, reasons, policy version, timestamp, and each rule result. After successful simulated payment, an animated success screen appears; **Go to home page** returns to the full Merchant footwear catalog.
 
-If Cursor does not load the repository MCP configuration, open Cursor's MCP settings and add a server URL: `http://127.0.0.1:8001/mcp`. For Codex CLI/IDE agent, register it separately with `codex mcp add mandate-lens-demo --url http://127.0.0.1:8001/mcp`; Cursor's `.cursor/mcp.json` is not Codex configuration. Detailed client setup and example prompts are in [the Windows local setup guide](../docs/windows-local-setup.md#test-with-an-ai-agent-through-mcp).
+If Cursor does not load the repository MCP configuration, open Cursor's MCP settings and add a server URL: `http://127.0.0.1:8001/mcp`. For Codex CLI/IDE agent, register it separately with `codex mcp add mandate-lens-demo --url http://127.0.0.1:8001/mcp`; Cursor's `.cursor/mcp.json` is not Codex configuration. The [end-to-end shopping guide](../docs/end-to-end-shopping-flow.md) covers local services, purchase prompts, and payment verification.
 
 ## PayPal Sandbox from the MCP shop
 
@@ -32,19 +32,19 @@ PAYPAL_SANDBOX_ENABLED=true
 PAYPAL_ORDERS_BASE_URL=https://api-m.sandbox.paypal.com
 PAYPAL_ORDERS_CLIENT_ID=<Sandbox REST app client ID>
 PAYPAL_ORDERS_CLIENT_SECRET=<Sandbox REST app secret>
-PAYPAL_ORDERS_RETURN_URL=https://<storefront-host>/checkout/return
-PAYPAL_ORDERS_CANCEL_URL=https://<storefront-host>/checkout/cancel
-STOREFRONT_ORIGIN=https://<storefront-host>
+PAYPAL_ORDERS_RETURN_URL=https://<merchant-ui-host>/checkout/return
+PAYPAL_ORDERS_CANCEL_URL=https://<merchant-ui-host>/checkout/cancel
+STOREFRONT_ORIGIN=https://<merchant-ui-host>
 ```
 
-Set the storefront's `VITE_API_URL` to the Merchant API base URL and rebuild/redeploy the frontend. The service-specific URLs are:
+Set `merchant-ui`'s `VITE_API_URL` to the Merchant API base URL and rebuild/redeploy the frontend. `STOREFRONT_ORIGIN` is the existing backend setting name; its value must be the public `merchant-ui` origin. The service-specific URLs are:
 
 | Render service | Required URL settings |
 | --- | --- |
-| Merchant API | `MANDATELENS_API_BASE_URL=https://<mandate-lens-api-host>`; PayPal settings above; `STOREFRONT_ORIGIN=https://<storefront-host>` |
+| Merchant API | `MANDATELENS_API_BASE_URL=https://<mandate-lens-api-host>`; PayPal settings above; `STOREFRONT_ORIGIN=https://<merchant-ui-host>` |
 | Mandate Lens API | `MERCHANT_API_BASE_URL=https://<merchant-api-host>` |
 | MCP server | `MERCHANT_API_BASE_URL=https://<merchant-api-host>` |
-| Storefront | Build-time `VITE_API_URL=https://<merchant-api-host>` |
+| Merchant UI | Build-time `VITE_API_URL=https://<merchant-api-host>` |
 
 Do not leave the localhost return/cancel URL defaults on Render. After changing environment variables, redeploy the affected services. Use only Sandbox credentials; never paste secrets into chat or commit them.
 
