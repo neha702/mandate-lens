@@ -1,6 +1,6 @@
-# PacePoint merchant shop UI
+# Merchant UI (PacePoint storefront)
 
-This React application contains the PacePoint demo shop only. The Pulse journey dashboard is a separate Mandate Lens UI in `../mandate-lens-ui`. For complete Windows PowerShell steps, including `.env`, both APIs, both UIs, MCP, and Cursor setup, see [../docs/windows-local-setup.md](../docs/windows-local-setup.md).
+This React application contains the PacePoint demo shop only. The AgentPulse journey dashboard is in `../agentpulse-ui`. For local setup and the full shop/MCP purchase sequence, see [the end-to-end shopping guide](../docs/end-to-end-shopping-flow.md).
 
 ## Start it locally
 
@@ -13,12 +13,12 @@ This React application contains the PacePoint demo shop only. The Pulse journey 
 
    The ignored root `.env` is loaded by this script. Spring Boot does not read that file automatically.
 
-3. Keep `PAYPAL_SANDBOX_ENABLED=false` in the root `.env` for simulated checkout. To use PayPal Sandbox from the storefront or MCP checkout, set it to `true` and configure the Sandbox REST app credentials and return/cancel URLs as described in [../docs/local-e2e.md](../docs/local-e2e.md). Restart the backend after changing `.env`.
+3. Keep `PAYPAL_SANDBOX_ENABLED=false` in the root `.env` for simulated checkout. To use PayPal Sandbox from the shop or MCP checkout, set it to `true` and configure the Sandbox REST app credentials and return/cancel URLs as described in [the end-to-end shopping guide](../docs/end-to-end-shopping-flow.md). Restart the backend after changing `.env`.
 
 4. In a second PowerShell terminal, run:
 
    ```powershell
-   Set-Location "C:\Users\prati\OneDrive\Desktop\Hackathon\mandate-lens\storefront"
+   Set-Location .\merchant-ui
    npm ci
    npm run dev
    ```

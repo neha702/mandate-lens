@@ -39,7 +39,7 @@ ACTIVE_SESSION_ID: str | None = None
 PREPARED_PURCHASES: dict[str, dict] = {}
 IMAGE_CACHE: dict[str, str] = {}
 
-shop = FastMCPApp("stridehub-shop")
+shop = FastMCPApp("pacepoint-shop")
 
 
 @shop.tool(model=True)
@@ -883,7 +883,7 @@ def return_to_shop_home() -> dict:
                 "purchaseCompleted": True}
     return {"ok": True, "returnedHome": True, "purchaseCompleted": False,
             "prepared": False, "session": None, "storefrontProducts": storefront_products,
-            "message": "Welcome to the StrideHub shop.",
+            "message": "Welcome to the PacePoint shop.",
             "cart": {"items": [], "total": 0, "currency": "USD"}}
 
 
@@ -943,7 +943,7 @@ def open_shoe_shop(query: str = "", max_amount: float | None = None,
             with Row(justify="between", align="center"):
                 with Column(gap=1):
                     Small("AI SHOPPING · LOCAL DEMO", bold=True, css_class="tracking-widest text-muted-foreground")
-                    Heading("StrideHub running shoes", level=1)
+                    Heading("PacePoint running shoes", level=1)
                 Badge("LOCAL MERCHANT DEMO", variant="warning")
 
         if purchase:
@@ -1141,7 +1141,7 @@ def open_shoe_shop(query: str = "", max_amount: float | None = None,
                         return_to_shop_home, onSuccess=SetState("result", RESULT)))
 
             with If("result.returnedHome"):
-                Heading("StrideHub footwear", level=1)
+                Heading("PacePoint footwear", level=1)
                 Text("Choose a shoe to start a new shopping session.",
                      css_class="text-sm text-muted-foreground")
                 with Grid(columns=[1, 1, 1], gap=4):

@@ -1,4 +1,4 @@
-.PHONY: run-server run-mandatelens run-merchant run-storefront run-pulse-ui
+.PHONY: run-server run-mandatelens run-merchant run-merchant-ui run-agentpulse-ui
 
 run-server: run-mandatelens
 
@@ -8,8 +8,8 @@ run-mandatelens:
 run-merchant:
 	@/bin/bash -c 'source ./local-env.sh && export SPRING_PROFILES_ACTIVE=merchant-server,storesync-simulator && exec ./mvnw -pl src/server -Pmerchant-app spring-boot:run'
 
-run-storefront:
-	@/bin/bash -c 'if [ ! -d storefront/node_modules ]; then npm --prefix storefront ci || exit; fi; exec npm --prefix storefront run dev -- --host 127.0.0.1'
+run-merchant-ui:
+	@/bin/bash -c 'if [ ! -d merchant-ui/node_modules ]; then npm --prefix merchant-ui ci || exit; fi; exec npm --prefix merchant-ui run dev -- --host 127.0.0.1'
 
-run-pulse-ui:
-	@/bin/bash -c 'if [ ! -d mandate-lens-ui/node_modules ]; then npm --prefix mandate-lens-ui ci || exit; fi; exec npm --prefix mandate-lens-ui run dev -- --host 127.0.0.1'
+run-agentpulse-ui:
+	@/bin/bash -c 'if [ ! -d agentpulse-ui/node_modules ]; then npm --prefix agentpulse-ui ci || exit; fi; exec npm --prefix agentpulse-ui run dev -- --host 127.0.0.1'
