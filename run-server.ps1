@@ -42,16 +42,18 @@ foreach ($keyName in @("DATABASE_URL", "DATABASE_USERNAME", "DATABASE_PASSWORD")
     }
 }
 
-$mainClass = switch ($Service) {
+$mavenArguments = @("-pl", "src/server", "spring-boot:run")
+switch ($Service) {
     "Merchant" {
         $env:SPRING_PROFILES_ACTIVE = "merchant-server,storesync-simulator"
-        "com.emeralds.mandatelens.merchant.MerchantApplication"
+        # The Maven profile selects MerchantApplication. Passing spring-boot.run.main-class
+        # as a command-line property is overridden by the plugin configuration in src/server/pom.xml.
+        $mavenArguments = @("-pl", "src/server", "-Pmerchant-app", "spring-boot:run")
     }
     default {
         $env:SPRING_PROFILES_ACTIVE = "mandatelens-server,agentguard-deterministic"
-        "com.emeralds.mandatelens.MandateLensApplication"
     }
 }
 
-& (Join-Path $repositoryRoot ".\mvnw.cmd") -pl src/server spring-boot:run "-Dspring-boot.run.main-class=$mainClass"
+& (Join-Path $repositoryRoot ".\mvnw.cmd") @mavenArguments
 exit $LASTEXITCODE
