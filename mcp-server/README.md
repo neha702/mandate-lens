@@ -2,7 +2,7 @@
 
 This is a separate, local FastMCP project. You start it as a local HTTP MCP server, then an MCP client such as Cursor or Codex connects to it. Footwear lookups call the merchant's live `GET /api/products` endpoint; the MCP App can display those catalog records and product images in a compatible client. Cart changes go through the Merchant API, which asks Mandate Lens/AgentGuard to evaluate the whole proposed cart before saving. The MCP keeps only a small local session-to-cart pointer; Merchant and Mandate Lens hold the durable cart, budget constraint, decisions, and journey history.
 
-The MCP server is a client of Merchant APIs. It does not call AgentGuard directly and it does not own the durable cart or journey data.
+The MCP server is a client of Merchant APIs. It does not call AgentGuard directly and it does not own the durable cart or journey data. After it returns the rendered shop MCP App, the client should render the UI and wait for shopper interaction; it should not inspect serialized UI output, run Python/shell code, or make follow-up tool calls to reconstruct the page. Use a client that supports MCP Apps for the interactive UI. A client that only shows JSON/text cannot display the app.
 
 ## Start the local MCP server
 
