@@ -2,6 +2,10 @@
 
 Mandate Lens is the AgentPulse and AgentGuard service under `src/server`; the PacePoint merchant API is a separate Spring process built from the same codebase for this first local split. The merchant calls Mandate Lens over HTTP for checks and reports real cart/payment outcomes. Pulse journey history is shown in its own UI under `mandate-lens-ui`.
 
+## Demo video
+
+[Watch the Mandate Lens demo on YouTube](https://www.youtube.com/watch?v=mcv9rUT9QKo).
+
 ## Project layout
 
 - `src/server/` — Spring Boot / Java 17 API and service modules.
