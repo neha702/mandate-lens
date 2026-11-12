@@ -250,7 +250,12 @@ def fetch_footwear_products() -> list[dict]:
 
 
 def filter_products(products: list[dict], query: str) -> list[dict]:
-    terms = [term.casefold() for term in query.split() if term.strip()]
+    generic_footwear_terms = {
+        "shoe", "shoes", "sneaker", "sneakers", "footwear", "running", "run",
+        "athletic", "casual", "pair", "pairs",
+    }
+    terms = [term.casefold().strip(".,!?;:") for term in query.split()
+             if term.strip(".,!?;:") and term.casefold().strip(".,!?;:") not in generic_footwear_terms]
     if not terms:
         return products
     return [product for product in products if all(
@@ -422,6 +427,20 @@ def start_shopping_session(approval_id: str) -> dict:
     max_amount = prepared["max_amount"]
     prepared_items = prepared["items"]
     cart_id = prepared["cart_id"]
+    if cart_id and cart_id.strip():
+        try:
+            existing_cart = merchant_request("GET", f"/merchant-cart/{cart_id}")
+        except RuntimeError as error:
+            logger.warning("Shopping session rejected before creation reason=EXISTING_CART_LOOKUP_FAILED cartId=%s error=%s",
+                           cart_id, error)
+            return {"ok": False, "session": None, "sessionSetupFailed": True,
+                    "message": f"Merchant could not verify cart {cart_id}: {error}",
+                    "cart": {"items": [], "total": 0, "currency": "USD"}}
+        cart_status = str(existing_cart.get("status", "")).upper()
+        if cart_status == "COMPLETED":
+            logger.info("Completed cart will not be reused; starting a fresh cart cartId=%s status=%s",
+                        cart_id, cart_status)
+            cart_id = ""
     session_id = str(uuid.uuid4())
     try:
         session = merchant_request("POST", "/api/merchant-sessions", {
@@ -444,8 +463,13 @@ def start_shopping_session(approval_id: str) -> dict:
             })
             active_cart = merchant_request("GET", f"/merchant-cart/{cart_id}")
         except RuntimeError as error:
-            return {"ok": False, "session": session, "message":
-                    f"The demo budget was recorded, but Merchant could not resume cart {cart_id}: {error}"}
+            logger.exception("Shopping session could not attach existing cart sessionId=%s journeyId=%s cartId=%s",
+                             session_id, session.get("journeyId"), cart_id)
+            return {"ok": False, "session": None, "sessionSetupFailed": True,
+                    "message": (f"Mandate Lens recorded the budget and created journey {session.get('journeyId')}, "
+                                f"but Merchant could not attach cart {cart_id}: {error} "
+                                "No new cart items were added. Start again without reusing this cart ID."),
+                    "cart": {"items": [], "total": 0, "currency": "USD"}}
     CARTS[session_id] = active_cart
     session["checkoutOperationId"] = None
     session["completed"] = False
@@ -893,11 +917,20 @@ def open_shoe_shop(query: str = "", max_amount: float | None = None,
                    product_id: str = "", different_models: int = 1) -> PrefabApp:
     """Browse the catalog, or guide a purchase through budget, search, and approval in order.
 
+    IMPORTANT FOR THE CHAT AGENT: this tool returns the interactive shopping screen that the
+    shopper should use. Call it once, then stop tool use for this turn. Do not inspect, parse,
+    summarize, or extract data from the returned UI payload; do not read local files or run
+    Python, shell, or other tools to inspect it. Reply only: "The shop is open. Please review
+    the selection and continue in the shopping screen." Then wait for the shopper to use the
+    UI or send another message.
+
     For browsing, use purchase=False; browsing ignores budget, quantity, product, and cart values
     that may have been supplied for an earlier request. For buying, set purchase=True. If no
     budget was stated, omit max_amount so the UI asks for it before searching Merchant. Quantity
     is the number of pairs of each model. Use different_models greater than one only when the
-    shopper explicitly asked for distinct models.
+    shopper explicitly asked for distinct models. Keep query to the shopper's core product words;
+    do not add guessed synonyms. Generic requests such as "shoes" or "running shoes" should search
+    the full footwear catalog.
     """
     global PRODUCTS
     logger.info("Shop UI tool invoked requestedMode=%s query=%r suppliedBudget=%s suppliedQuantity=%s suppliedProductId=%s suppliedCartId=%s suppliedDistinctModels=%s activeSessionId=%s",
@@ -1022,7 +1055,7 @@ def open_shoe_shop(query: str = "", max_amount: float | None = None,
                                             "message": "Purchase declined. No journey or cart was created.",
                                             "cart": {"items": [], "total": 0, "currency": "USD"}}))
 
-            with If("result.session && !result.purchaseCompleted"):
+            with If("result.session && result.cart && !result.sessionSetupFailed && !result.purchaseCompleted"):
                 with Card():
                     with CardHeader():
                         Heading("Merchant cart", level=2)
@@ -1140,6 +1173,14 @@ def open_shoe_shop(query: str = "", max_amount: float | None = None,
                     Button("Go to home page", variant="success", size="lg", onClick=CallTool(
                         return_to_shop_home, onSuccess=SetState("result", RESULT)))
 
+            with If("result.sessionSetupFailed"):
+                with Card(css_class="border-amber-300 bg-amber-50 text-amber-950"):
+                    with CardHeader():
+                        Badge("CART SETUP NEEDS ATTENTION", variant="warning")
+                        Heading("Shopping could not continue with this cart", level=3)
+                    with CardContent():
+                        Text(Rx("result.message"))
+
             with If("result.returnedHome"):
                 Heading("PacePoint footwear", level=1)
                 Text("Choose a shoe to start a new shopping session.",
@@ -1180,7 +1221,11 @@ def open_shoe_shop(query: str = "", max_amount: float | None = None,
 mcp = FastMCP(
     "Mandate Lens Merchant Demo",
     instructions=(
-        "You are connected to the local Merchant shopping demo. Follow these rules. "
+        "You are connected to the local Merchant shopping demo. Follow these rules in priority order. "
+        "After open_shoe_shop successfully returns its interactive shopping screen, end the turn immediately. "
+        "The screen itself is the response; say only 'The shop is open. Please review the selection and continue in the shopping screen.' "
+        "Do not inspect or parse tool output, open local files, or run Python, shell, or any other tools. "
+        "Wait for the shopper to interact with the screen or send a new message. "
         "TOOL CALL REQUIREMENT: When a request matches a tool, call that MCP tool. Never merely "
         "describe what a tool would do, and never claim a tool is unavailable if it appears in the "
         "connected server's tool list. Report only facts returned by tool calls. "
@@ -1196,7 +1241,9 @@ mcp = FastMCP(
         "The client is responsible for rendering the returned MCP App. If the client shows raw JSON instead "
         "of the shop UI, explain that this client does not render MCP Apps and do not try to recreate it by coding. "
         "For a purchase, call open_shoe_shop with purchase=true, the "
-        "shopper's requested quantity per model, and a search query. Default to one model; set "
+        "shopper's requested quantity per model, and only the core product words in query; do not "
+        "stuff query with guessed synonyms. Generic 'shoes' or 'running shoes' searches use the full footwear catalog. "
+        "Default to one model; set "
         "different_models above one only when the shopper explicitly asks for different/distinct models. "
         "An unqualified 'buy me N shoes' or 'N pairs of shoes' means quantity N of one model. Never copy N "
         "into both quantity and different_models for one count. 'Buy me 3 shoes' means three pairs of one model, "

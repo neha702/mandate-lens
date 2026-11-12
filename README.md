@@ -4,7 +4,7 @@ Mandate Lens is a demo commerce system for checking agent-driven shopping action
 
 ## Demo video
 
-[Watch the Mandate Lens demo on YouTube](https://www.youtube.com/watch?v=mcv9rUT9QKo).
+[Watch the Mandate Lens demo on YouTube](https://www.youtube.com/watch?v=bkY0ZYk8xfY).
 
 ## Project layout
 
